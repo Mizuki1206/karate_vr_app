@@ -1,0 +1,11 @@
+Model Information:
+* title:	Giraffe
+* source:	https://sketchfab.com/3d-models/giraffe-522c042aad9f4348a74c2985ec3f99f9
+* author:	BlueMesh (https://sketchfab.com/VapTor)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Giraffe" (https://sketchfab.com/3d-models/giraffe-522c042aad9f4348a74c2985ec3f99f9) by BlueMesh (https://sketchfab.com/VapTor) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
