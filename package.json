@@ -1,17 +1,26 @@
 {
-  "name": "test-webxr",
+  "name": "karate",
   "version": "1.0.0",
-  "main": "Node.js",
+  "description": "Three.js application with HTTPS server",
+  "main": "server.js",
   "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "generate-cert": "node generate-cert.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
+  "keywords": [
+    "threejs",
+    "https",
+    "express"
+  ],
   "author": "",
   "license": "ISC",
-  "description": "",
   "dependencies": {
-    "express": "^5.1.0",
-    "multer": "^1.4.5-lts.2",
-    "ws": "^8.18.1"
+    "express": "^4.21.2",
+    "three": "^0.159.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
   }
 }

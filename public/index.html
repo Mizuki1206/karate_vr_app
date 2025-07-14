@@ -2,159 +2,650 @@
 <html lang="ja">
 
 <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" href="Image/favicon.ico" />
-    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <title>Attraction「ランタン飛ばし」</title>
-    <script
-        src="https://unpkg.com/aframe-randomizer-components@3.0.2/dist/aframe-randomizer-components.min.js"></script>
-    <script
-        src="https://unpkg.com/aframe-entity-generator-component@3.0.1/dist/aframe-entity-generator-component.min.js"></script>
-    <script
-        src="https://unpkg.com/aframe-environment-component@1.3.3/dist/aframe-environment-component.min.js"></script>
-    <script src="https://cdn.rawgit.com/donmccurdy/aframe-extras/v6.1.1/dist/aframe-extras.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KARATE FORM VR</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background: #000;
+        }
 
-    <!-- giraffe-behaviorコンポーネントの定義 -->
-    <script>
-        AFRAME.registerComponent('giraffe-behavior', {
-            schema: {
-                runClip: { type: 'string', default: 'Run_Forward' },
-                eatClip: { type: 'string', default: 'Eat' },
-                idleClip: { type: 'string', default: 'Idle' },
-                speed: { type: 'number', default: 0.02 },              // 移動速度
-                runDistanceThreshold: { type: 'number', default: 2.5 }, // プレイヤーにどこまで近づくか
-                highBoxThreshold: { type: 'number', default: 1 },       // ボックスが「高い」とみなすY値
-                lowBoxThreshold: { type: 'number', default: 0.8 }       // ボックスが「低い」とみなすY値
-            },
+        #startButton,
+        #nonVRButton {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 20px 40px;
+            font-size: 24px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            z-index: 100;
+        }
 
-            init: function () {
-                // 赤いボックスとプレイヤーを取得
-                this.redBox = document.querySelector('#redBox');
-                this.player = document.querySelector('#player');
-                this.currentClip = null;
+        #nonVRButton {
+            top: 60%;
+            background: #2196F3;
+        }
 
-                // 初期状態では Idle
-                this.changeAnimation(this.data.idleClip);
-            },
+        #startButton:hover {
+            background: #45a049;
+        }
 
-            tick: function (time, timeDelta) {
-                if (!this.redBox || !this.player) { return; }
+        #nonVRButton:hover {
+            background: #1976D2;
+        }
 
-                // オブジェクトの現在座標を取得
-                const giraffePos = this.el.object3D.position;
-                const boxPos = this.redBox.object3D.position;
-                const playerPos = this.player.object3D.position;
+        #errorMessage {
+            position: absolute;
+            top: 30%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff6b6b;
+            font-size: 18px;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 100;
+            display: none;
+        }
 
-                // timeDelta はミリ秒なので、秒に換算したい場合は timeDelta / 1000
-                // ここでは 60FPS 約16.6667ms基準で割る例
-                const frameFactor = (timeDelta / 16.6667);
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 5px;
+            z-index: 100;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 1);
+            min-width: 400px;
+        }
 
-                // ボックスが高い → Runしながらプレイヤーへ移動
-                if (boxPos.y > this.data.highBoxThreshold) {
-                    const distToPlayer = giraffePos.distanceTo(playerPos);
-
-                    if (distToPlayer > this.data.runDistanceThreshold) {
-                        // Run アニメーションに切り替え
-                        this.changeAnimation(this.data.runClip);
-
-                        // 「プレイヤー - キリン」のベクトルを正規化
-                        let direction = new THREE.Vector3().subVectors(playerPos, giraffePos);
-                        // 水平回転だけにしたいなら Y成分をゼロに
-                        direction.y = 0;
-                        direction.normalize();
-
-                        // キリンの向きをプレイヤーに向ける
-                        // glTFの初期向き次第でオフセットを調整してください
-                        const angle = Math.atan2(direction.x, direction.z);
-                        // 例：もし逆向きになったら angle にマイナスをつける、あるいは π/2 を足すなどで微調整
-                        this.el.object3D.rotation.set(0, angle, 0);
-
-                        // プレイヤーに向かって移動
-                        giraffePos.addScaledVector(direction, this.data.speed * frameFactor);
-
-                    } else {
-                        // 一定距離まで近づいたら Idle
-                        this.changeAnimation(this.data.idleClip);
-                    }
-
-                    // ボックスが低い → Eatアニメーション
-                } else if (boxPos.y < this.data.lowBoxThreshold) {
-                    this.changeAnimation(this.data.eatClip);
-
-                    // それ以外 → Idle
-                } else {
-                    this.changeAnimation(this.data.idleClip);
-                }
-            },
-
-            // アニメーションを切り替える関数
-            changeAnimation: function (clipName) {
-                if (this.currentClip === clipName) return;
-                this.currentClip = clipName;
-                this.el.setAttribute('animation-mixer', `clip: ${clipName}; loop: repeat;`);
-            }
-        });
-    </script>
+        #hitStatus {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #00ff00;
+            font-size: 48px;
+            font-weight: bold;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px 40px;
+            border-radius: 10px;
+            z-index: 100;
+            display: none;
+        }
+    </style>
 </head>
 
 <body>
-    <!-- A-Frameシーンの開始 -->
-    <a-scene loading-screen="dotsColor: white; backgroundColor: black" cursor="rayOrigin: mouse;"
-        raycaster="far: 4; objects: .clickable">
-        <!-- 環境設定 -->
-        <a-entity environment="preset: yavapai; groundTexture: none;"></a-entity>
+    <div id="info">VRモードでハンドトラッキングを表示</div>
+    <div id="errorMessage"></div>
+    <button id="startButton">VRモードを開始</button>
+    <button id="nonVRButton">非VRモードで開始</button>
 
-        <!-- for文でglTFのtreeをランダムに50個表示 scaleは0.02 0.02 0.02で固定 -->
-        <script>
-            for (let i = 0; i < 50; i++) {
-                let x = Math.random() * 100 - 50;
-                let z = Math.random() * 100 - 50;
-                document.write(
-                    `<a-entity gltf-model="glTF/tree/scene.gltf" scale="0.02 0.02 0.02" position="${x} 0 ${z}"></a-entity>`
-                );
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script>
+        let scene, camera, renderer;
+        let hand1, hand2;
+        let handMeshes = { left: [], right: [] };
+        let headMesh;
+        let targets = [];
+        let isVRMode = false;
+        let raycaster, mouse;
+        let gltfLoader;
+        let gltfModels = {}; // GLTFモデルを保存
+        let availableGltfFiles = []; // 利用可能なGLTFファイルのリスト
+        let lastSpawnTime = 0; // 最後にスポーンした時刻
+        let spawnInterval = 3000; // スポーン間隔（ミリ秒）
+        let spawnCount = 0; // スポーン回数をカウント
+
+        const HAND_JOINTS = [
+            'wrist',
+            'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip',
+            'index-finger-metacarpal', 'index-finger-phalanx-proximal', 'index-finger-phalanx-intermediate', 'index-finger-phalanx-distal', 'index-finger-tip',
+            'middle-finger-metacarpal', 'middle-finger-phalanx-proximal', 'middle-finger-phalanx-intermediate', 'middle-finger-phalanx-distal', 'middle-finger-tip',
+            'ring-finger-metacarpal', 'ring-finger-phalanx-proximal', 'ring-finger-phalanx-intermediate', 'ring-finger-phalanx-distal', 'ring-finger-tip',
+            'pinky-finger-metacarpal', 'pinky-finger-phalanx-proximal', 'pinky-finger-phalanx-intermediate', 'pinky-finger-phalanx-distal', 'pinky-finger-tip'
+        ];
+
+
+        // ターゲットクラス
+        class Target {
+            constructor(gltfModel = null, type = 'front') {
+                this.group = new THREE.Group();
+                this.gltfModel = gltfModel;
+                this.hit = false;
+                this.type = type;
+                this.speed = 0.05; // 移動速度を上げて突き抜けるアニメーションを強調
+
+                if (gltfModel) {
+                    // GLTFモデルを使用
+                    const modelClone = gltfModel.scene.clone();
+
+                    // モデルのバウンディングボックスを計算
+                    const box = new THREE.Box3().setFromObject(modelClone);
+                    const size = box.getSize(new THREE.Vector3());
+                    const center = box.getCenter(new THREE.Vector3());
+
+                    // モデルのサイズを正規化（高さ2ユニットに）
+                    const maxDim = Math.max(size.x, size.y, size.z);
+                    if (maxDim > 0) {
+                        const scale = 2 / maxDim;
+                        modelClone.scale.set(scale, scale, scale);
+
+                        // 中心を原点に移動
+                        modelClone.position.x = -center.x * scale;
+                        modelClone.position.y = -center.y * scale;
+                        modelClone.position.z = -center.z * scale;
+                    }
+
+                    // モデルの可視性を確保
+                    modelClone.traverse((child) => {
+                        if (child.isMesh) {
+                            child.visible = true;
+
+                            // マテリアルが存在しない場合は作成
+                            if (!child.material) {
+                                child.material = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+                            }
+                        }
+                    });
+
+                    // モデルをグループに追加
+                    this.group.add(modelClone);
+
+                    // 当たり判定用の球体を追加（透明）
+                    const collisionGeometry = new THREE.SphereGeometry(1, 16, 16);
+                    const collisionMaterial = new THREE.MeshBasicMaterial({
+                        color: 0xffffff,
+                        transparent: true,
+                        opacity: 0,
+                        wireframe: true
+                    });
+                    this.collisionMesh = new THREE.Mesh(collisionGeometry, collisionMaterial);
+                    this.group.add(this.collisionMesh);
+                }
             }
-        </script>
 
-        <!-- 赤いボックス（id="redBox"） -->
-        <a-box id="redBox" grabbable scale="0.2 0.2 0.2" position="0 1 -1" color="red"></a-box>
+            update(playerPosition) {
+                if (this.hit) return;
 
-        <!-- Young Giraffeのモデル。giraffe-behavior を付与 -->
-        <a-entity id="giraffe" gltf-model="glTF/young_giraffe2/scene.gltf" scale="4 4 4" position="1 1 -20"
-            rotation="0 90 0" animation-mixer="clip: Idle; loop: repeat;" giraffe-behavior>
-        </a-entity>
+                // タイプに応じて移動方向を決定
+                if (this.type === 'side') {
+                    // 右から左へ移動（X軸のマイナス方向）
+                    this.group.position.x -= this.speed;
+                } else {
+                    // 後ろから前へ移動（Z軸のプラス方向）
+                    this.group.position.z += this.speed;
+                }
 
-        <!-- プレイヤーエンティティ（カメラと制御） -->
-        <a-entity id="cameraRig">
-            <a-entity visible="false" id="player" gaze_object="0" moving look-controls
-                wasd-controls="fly:true; acceleration: 20" camera position="0 1.6 0" collision-detection>
-                <a-entity scale="0.4 0.5 0.5" position="0 1 -0.8">
-                    <a-sphere id="mybody" radius="0.3" scale="1 2 0.8"></a-sphere>
-                    <a-sphere radius="0.28" rotation="43 0 0" scale="0.6 0.4 0.25" position="0 0.12 -0.16"
-                        color="#fffaf0"></a-sphere>
-                    <a-sphere id="left-hand" radius="0.2" position="-0.3 -0.03 0.03"
-                        rotation="0.29357 0.002841 -28.9774" scale="0.3 0.85 0.3"></a-sphere>
-                    <a-sphere id="right-hand" radius="0.2" position="0.3 -0.03 0.03" rotation="0.29357 0.002841 28.9774"
-                        scale="0.3 0.85 0.3"></a-sphere>
-                    <a-sphere radius="0.25" position="-0.2 -0.25 -0.03" scale="0.3 0.5 0.275"></a-sphere>
-                    <a-sphere radius="0.25" position="0.2 -0.25 -0.03" scale="0.3 0.5 0.275"></a-sphere>
-                    <a-sphere radius="0.2" position="0.13 0.135 -0.2" rotation="-22 0 0"
-                        scale="0.055 0.07 0.055"></a-sphere>
-                    <a-sphere radius="0.2" position="-0.13 0.135 -0.2" rotation="-22 0 0"
-                        scale="0.055 0.07 0.055"></a-sphere>
-                </a-entity>
-            </a-entity>
+                // 画面外に出たかチェック
+                if (this.type === 'side' && this.group.position.x < -10) {
+                    this.hit = true; // 削除フラグを立てる
+                } else if (this.type === 'front' && this.group.position.z > 10) {
+                    this.hit = true; // 削除フラグを立てる
+                }
+            }
 
-            <!-- VRコントローラ設定。VR利用時のテレポートなど -->
-            <a-entity laser-controls="hand: left" raycaster="objects: .teleportable"
-                teleport-controls="button: trigger; collisionEntities: #floor; cameraRig: #cameraRig;"
-                hand-tracking-grab-controls="hand: left;">
-            </a-entity>
-            <a-entity laser-controls="hand: right" raycaster="objects: .teleportable"
-                teleport-controls="button: trigger; collisionEntities: #floor; cameraRig: #cameraRig;"
-                hand-tracking-grab-controls="hand: right;">
-            </a-entity>
-        </a-entity>
-    </a-scene>
+            checkMatch() {
+                if (!headMesh || this.hit || !this.gltfModel || !this.collisionMesh) return;
+
+                const targetPos = new THREE.Vector3();
+                this.collisionMesh.getWorldPosition(targetPos);
+
+                // 手との距離をチェック（頭部との衝突は無視）
+                let leftHandDist = 999;
+                let rightHandDist = 999;
+
+                if (handMeshes.left[0] && handMeshes.left[0].visible) {
+                    leftHandDist = handMeshes.left[0].position.distanceTo(targetPos);
+                }
+                if (handMeshes.right[0] && handMeshes.right[0].visible) {
+                    rightHandDist = handMeshes.right[0].position.distanceTo(targetPos);
+                }
+
+                const threshold = 0.5;
+                // 手との衝突のみをチェック（頭部との衝突は除外）
+                if (leftHandDist < threshold || rightHandDist < threshold) {
+                    this.hit = true;
+                }
+            }
+        }
+
+
+        function init() {
+            // Three.jsが完全にロードされているか確認
+            if (typeof THREE === 'undefined' || !THREE.GLTFLoader) {
+                console.error('Three.js or GLTFLoader not loaded yet');
+                setTimeout(init, 100);
+                return;
+            }
+
+            // GLTFローダーの初期化
+            gltfLoader = new THREE.GLTFLoader();
+            console.log('GLTFLoader initialized:', gltfLoader);
+
+            // 利用可能なGLTFファイルをロード
+            loadGLTFModels();
+
+            // シーン作成
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x101010);
+
+            // カメラ
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 1.6, 3);
+
+            // レンダラー
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            // ライト - simple_gltf.htmlと同じ設定
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 10, 5);
+            scene.add(directionalLight);
+
+            // 床
+            const floorGeometry = new THREE.PlaneGeometry(20, 20);
+            const floorMaterial = new THREE.MeshStandardMaterial({
+                color: 0x222222,
+                roughness: 0.8,
+                metalness: 0.2
+            });
+            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            scene.add(floor);
+
+            // グリッド
+            const gridHelper = new THREE.GridHelper(20, 20);
+            scene.add(gridHelper);
+
+            // ハンドトラッキングの設定
+            hand1 = renderer.xr.getHand(0);
+            hand2 = renderer.xr.getHand(1);
+
+            scene.add(hand1);
+            scene.add(hand2);
+
+            // 手の関節用の球体を作成
+            // 逆の割り当てを試す（hand1を右手、hand2を左手として）
+            createHandJoints(hand1, 'right');
+            createHandJoints(hand2, 'left');
+
+            // 頭部の表示用メッシュを作成
+            const headGeometry = new THREE.SphereGeometry(0.15, 32, 32);
+            const headMaterial = new THREE.MeshStandardMaterial({
+                color: 0x00ff00,
+                roughness: 0.5,
+                metalness: 0.3
+            });
+            headMesh = new THREE.Mesh(headGeometry, headMaterial);
+            scene.add(headMesh);
+
+
+            // VRモードボタンの設定
+            document.getElementById('startButton').addEventListener('click', async () => {
+                try {
+                    // WebXRのサポートチェック
+                    if (!navigator.xr) {
+                        throw new Error('WebXRがサポートされていません');
+                    }
+
+                    // immersive-vrセッションのサポートチェック
+                    const isVRSupported = await navigator.xr.isSessionSupported('immersive-vr');
+                    if (!isVRSupported) {
+                        throw new Error('VRセッションがサポートされていません');
+                    }
+
+                    // VRセッションを開始（ハンドトラッキング機能を要求）
+                    const session = await navigator.xr.requestSession('immersive-vr', {
+                        requiredFeatures: ['hand-tracking'],
+                        optionalFeatures: ['local-floor', 'bounded-floor']
+                    });
+
+                    // セッションをレンダラーに設定
+                    await renderer.xr.setSession(session);
+
+                    // ボタンを非表示
+                    document.getElementById('startButton').style.display = 'none';
+                    document.getElementById('nonVRButton').style.display = 'none';
+                    
+                    isVRMode = true;
+
+                } catch (error) {
+                    console.error('VRセッションの開始に失敗:', error);
+                    document.getElementById('errorMessage').textContent = 
+                        `VRエラー: ${error.message}`;
+                    document.getElementById('errorMessage').style.display = 'block';
+                }
+            });
+
+            // 非VRモードボタンの設定
+            document.getElementById('nonVRButton').addEventListener('click', () => {
+
+                document.getElementById('startButton').style.display = 'none';
+                document.getElementById('nonVRButton').style.display = 'none';
+                document.getElementById('info').textContent = '非VRモード - クリックでターゲットを破壊';
+
+                isVRMode = false;
+
+                // Raycasterとマウスの初期化
+                raycaster = new THREE.Raycaster();
+                mouse = new THREE.Vector2();
+
+                // マウスクリックイベントの設定
+                renderer.domElement.addEventListener('click', onMouseClick);
+                renderer.domElement.addEventListener('mousemove', onMouseMove);
+                renderer.domElement.addEventListener('mousedown', () => { isMouseDown = true; });
+                renderer.domElement.addEventListener('mouseup', () => { isMouseDown = false; });
+                renderer.domElement.addEventListener('mouseleave', () => { isMouseDown = false; });
+
+                // 非VRモードでは頭部メッシュを非表示
+                headMesh.visible = false;
+
+                // カメラを少し後ろに
+                camera.position.set(0, 1.6, 5);
+
+                // ゲーム開始
+                startNonVRGame();
+            });
+
+            // ウィンドウリサイズ
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function createHandJoints(hand, handedness) {
+            const jointMaterial = new THREE.MeshStandardMaterial({
+                color: handedness === 'left' ? 0xff0000 : 0x0000ff,
+                roughness: 0.5,
+                metalness: 0.5
+            });
+
+            const jointGeometry = new THREE.SphereGeometry(0.01, 16, 16);
+
+            for (let i = 0; i < HAND_JOINTS.length; i++) {
+                const jointMesh = new THREE.Mesh(jointGeometry, jointMaterial);
+                jointMesh.visible = false;
+                hand.add(jointMesh);
+                handMeshes[handedness].push(jointMesh);
+            }
+        }
+
+        function updateHandJoints() {
+            // 右手の更新（hand1）
+            if (hand1.joints) {
+                for (let i = 0; i < HAND_JOINTS.length; i++) {
+                    const joint = hand1.joints[HAND_JOINTS[i]];
+                    const mesh = handMeshes.right[i];
+
+                    if (joint) {
+                        mesh.position.copy(joint.position);
+                        mesh.quaternion.copy(joint.quaternion);
+                        mesh.visible = true;
+
+                        // 手首の座標をデバッグ出力
+                        if (HAND_JOINTS[i] === 'wrist') {
+                            console.log('Right wrist position:', joint.position.x.toFixed(2), joint.position.y.toFixed(2), joint.position.z.toFixed(2));
+                        }
+                    } else {
+                        mesh.visible = false;
+                    }
+                }
+            }
+
+            // 左手の更新（hand2）
+            if (hand2.joints) {
+                for (let i = 0; i < HAND_JOINTS.length; i++) {
+                    const joint = hand2.joints[HAND_JOINTS[i]];
+                    const mesh = handMeshes.left[i];
+
+                    if (joint) {
+                        mesh.position.copy(joint.position);
+                        mesh.quaternion.copy(joint.quaternion);
+                        mesh.visible = true;
+
+                        // 手首の座標をデバッグ出力
+                        if (HAND_JOINTS[i] === 'wrist') {
+                            console.log('Left wrist position:', joint.position.x.toFixed(2), joint.position.y.toFixed(2), joint.position.z.toFixed(2));
+                        }
+                    } else {
+                        mesh.visible = false;
+                    }
+                }
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // 手の座標を常に更新する関数
+        function updateHandCoordinatesDisplay() {
+            // 左手の座標（手首のメッシュ位置を取得）
+            let leftHandPosStr = "未検出";
+            // wristは配列の最初の要素（インデックス0）
+            if (handMeshes.left[0] && handMeshes.left[0].visible) {
+                const wristMesh = handMeshes.left[0];
+                leftHandPosStr = `(${wristMesh.position.x.toFixed(2)}, ${wristMesh.position.y.toFixed(2)}, ${wristMesh.position.z.toFixed(2)})`;
+            }
+
+            // 右手の座標（手首のメッシュ位置を取得）
+            let rightHandPosStr = "未検出";
+            // wristは配列の最初の要素（インデックス0）
+            if (handMeshes.right[0] && handMeshes.right[0].visible) {
+                const wristMesh = handMeshes.right[0];
+                rightHandPosStr = `(${wristMesh.position.x.toFixed(2)}, ${wristMesh.position.y.toFixed(2)}, ${wristMesh.position.z.toFixed(2)})`;
+            }
+
+            // 頭部の座標
+            let headPosStr = "未検出";
+            if (headMesh) {
+                headPosStr = `(${headMesh.position.x.toFixed(2)}, ${headMesh.position.y.toFixed(2)}, ${headMesh.position.z.toFixed(2)})`;
+            }
+
+            // HTML情報表示を更新
+            document.getElementById('info').innerHTML = `
+                <div style="line-height: 1.8;">
+                    <div>VRモード</div>
+                    <div>頭部座標: <span style="color: #00ff00;">${headPosStr}</span></div>
+                    <div>左手座標: <span style="color: #ff00ff;">${leftHandPosStr}</span></div>
+                    <div>右手座標: <span style="color: #00ffff;">${rightHandPosStr}</span></div>
+                </div>
+            `;
+        }
+
+        // 非VRモード用の関数
+        function startNonVRGame() {
+            // ゲーム開始フラグ
+            animate();
+        }
+
+        // マウス感度
+        const mouseSensitivity = 0.002;
+        let mouseX = 0;
+        let mouseY = 0;
+        let isMouseDown = false;
+
+        function onMouseMove(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // 非VRモードでマウスドラッグ中の場合、カメラを回転
+            if (!isVRMode && isMouseDown) {
+                const deltaX = event.movementX || event.mozMovementX || event.webkitMovementX || 0;
+                const deltaY = event.movementY || event.mozMovementY || event.webkitMovementY || 0;
+
+                // Y軸回転（左右を見る）
+                camera.rotation.y -= deltaX * mouseSensitivity;
+
+                // X軸回転（上下を見る）を制限付きで適用
+                const newRotationX = camera.rotation.x - deltaY * mouseSensitivity;
+                camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, newRotationX));
+            }
+        }
+
+        function onMouseClick(event) {
+            // Raycasterを更新
+            raycaster.setFromCamera(mouse, camera);
+
+            // すべてのターゲットとの交差判定
+            for (let target of targets) {
+                const intersects = raycaster.intersectObjects(target.group.children);
+
+                if (intersects.length > 0 && !target.hit) {
+                    // ヒット処理
+                    target.hit = true;
+
+                    // ターゲットを非表示
+                    target.group.visible = false;
+
+                    break;
+                }
+            }
+        }
+
+        function animate() {
+            renderer.setAnimationLoop(render);
+        }
+
+        function render() {
+            // VRモードの場合
+            if (renderer.xr.isPresenting) {
+                // ハンドトラッキングの更新
+                updateHandJoints();
+
+                // カメラの位置を頭部メッシュに反映
+                headMesh.position.copy(camera.position);
+                headMesh.quaternion.copy(camera.quaternion);
+                isVRMode = true;
+
+                // VRモードで常に手の座標を更新
+                updateHandCoordinatesDisplay();
+            }
+
+            // ゲームロジック（VRモードと非VRモード共通）
+            if (isVRMode || (!isVRMode && !renderer.xr.isPresenting)) {
+                // 自動スポーン
+                const currentTime = Date.now();
+                if (currentTime - lastSpawnTime > spawnInterval && availableGltfFiles.length > 0) {
+                    // front.gltfとside.gltfを交互にスポーン
+                    const type = (spawnCount % 2 === 0) ? 'front' : 'side';
+                    spawnTestTarget(type);
+                    lastSpawnTime = currentTime;
+                    spawnCount++;
+                }
+
+                // プレイヤーの位置を取得（VRモードではカメラ位置、非VRモードでは固定位置）
+                const playerPosition = isVRMode ? camera.position : new THREE.Vector3(0, 1.6, 0);
+
+                // ターゲットの更新
+                for (let i = targets.length - 1; i >= 0; i--) {
+                    targets[i].update(playerPosition);
+                    targets[i].checkMatch();
+
+                    // ヒットしたターゲットを削除
+                    if (targets[i].hit) {
+                        scene.remove(targets[i].group);
+                        targets.splice(i, 1);
+                    }
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // GLTFモデルをロード
+        function loadGLTFModels() {
+            const gltfFiles = ['front.gltf', 'side.gltf'];
+            console.log('Loading GLTF files:', gltfFiles);
+
+            gltfFiles.forEach(filename => {
+                gltfLoader.load(
+                    filename,
+                    function (gltf) {
+                        gltfModels[filename] = gltf;
+                        availableGltfFiles.push(filename);
+                        console.log(`${filename} loaded:`, gltf);
+
+                        // モデルの情報を表示
+                        const box = new THREE.Box3().setFromObject(gltf.scene);
+                        const size = box.getSize(new THREE.Vector3());
+                        console.log(`${filename} size:`, size);
+                    },
+                    function (xhr) {
+                        console.log(`${filename}: ${(xhr.loaded / xhr.total * 100)}% loaded`);
+                    },
+                    function (error) {
+                        console.error(`Error loading ${filename}:`, error);
+                    }
+                );
+            });
+        }
+
+        // GLTFモデルをスポーンする関数
+        function spawnTestTarget(type = 'front') {
+            const filename = type + '.gltf';
+            if (gltfModels[filename]) {
+                const target = new Target(gltfModels[filename], type);
+                scene.add(target.group);
+                targets.push(target);
+
+                // 位置設定
+                if (type === 'side') {
+                    // 真右から（プレイヤーの真横から）
+                    target.group.position.set(8, 1.2, camera.position.z);
+                    // Y軸方向に90度回転（左向きに）
+                    target.group.rotation.y = Math.PI / 2;
+                } else {
+                    // VRモードでは手前から、非VRモードでは後ろから
+                    const startZ = isVRMode ? camera.position.z - 8 : -10;
+                    target.group.position.set(0, 1.2, startZ); 
+                    // 回転なし（正面を向いたまま）
+                }
+                console.log(`Spawned: ${filename} at`, target.group.position);
+            } else {
+                console.log(`Model not loaded: ${filename}`);
+            }
+        }
+
+        // キーボードショートカット（手動スポーン）
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'f') spawnTestTarget('front'); // 前方からスポーン
+            if (e.key === 's') spawnTestTarget('side');  // 横からスポーン
+        });
+
+        // グローバルスコープに公開（デバッグ用）
+        window.spawnTestTarget = spawnTestTarget;
+        window.gltfModels = gltfModels;
+        window.targets = targets;
+        window.scene = scene;
+
+        // 初期化と開始
+        init();
+        animate();
+    </script>
 </body>
 
 </html>

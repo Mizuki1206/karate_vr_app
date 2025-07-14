@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="Image/favicon.ico" />
+    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+    <title>Attraction「ランタン飛ばし」</title>
+    <script
+        src="https://unpkg.com/aframe-randomizer-components@3.0.2/dist/aframe-randomizer-components.min.js"></script>
+    <script
+        src="https://unpkg.com/aframe-entity-generator-component@3.0.1/dist/aframe-entity-generator-component.min.js"></script>
+    <script
+        src="https://unpkg.com/aframe-environment-component@1.3.3/dist/aframe-environment-component.min.js"></script>
+    <script src="https://cdn.rawgit.com/donmccurdy/aframe-extras/v6.1.1/dist/aframe-extras.min.js"></script>
+
+    <!-- giraffe-behaviorコンポーネントの定義 -->
+    <script>
+        AFRAME.registerComponent('giraffe-behavior', {
+            schema: {
+                runClip: { type: 'string', default: 'Run_Forward' },
+                eatClip: { type: 'string', default: 'Eat' },
+                idleClip: { type: 'string', default: 'Idle' },
+                speed: { type: 'number', default: 0.02 },              // 移動速度
+                runDistanceThreshold: { type: 'number', default: 2.5 }, // プレイヤーにどこまで近づくか
+                highBoxThreshold: { type: 'number', default: 1 },       // ボックスが「高い」とみなすY値
+                lowBoxThreshold: { type: 'number', default: 0.8 }       // ボックスが「低い」とみなすY値
+            },
+
+            init: function () {
+                // 赤いボックスとプレイヤーを取得
+                this.redBox = document.querySelector('#redBox');
+                this.player = document.querySelector('#player');
+                this.currentClip = null;
+
+                // 初期状態では Idle
+                this.changeAnimation(this.data.idleClip);
+            },
+
+            tick: function (time, timeDelta) {
+                if (!this.redBox || !this.player) { return; }
+
+                // オブジェクトの現在座標を取得
+                const giraffePos = this.el.object3D.position;
+                const boxPos = this.redBox.object3D.position;
+                const playerPos = this.player.object3D.position;
+
+                // timeDelta はミリ秒なので、秒に換算したい場合は timeDelta / 1000
+                // ここでは 60FPS 約16.6667ms基準で割る例
+                const frameFactor = (timeDelta / 16.6667);
+
+                // ボックスが高い → Runしながらプレイヤーへ移動
+                if (boxPos.y > this.data.highBoxThreshold) {
+                    const distToPlayer = giraffePos.distanceTo(playerPos);
+
+                    if (distToPlayer > this.data.runDistanceThreshold) {
+                        // Run アニメーションに切り替え
+                        this.changeAnimation(this.data.runClip);
+
+                        // 「プレイヤー - キリン」のベクトルを正規化
+                        let direction = new THREE.Vector3().subVectors(playerPos, giraffePos);
+                        // 水平回転だけにしたいなら Y成分をゼロに
+                        direction.y = 0;
+                        direction.normalize();
+
+                        // キリンの向きをプレイヤーに向ける
+                        // glTFの初期向き次第でオフセットを調整してください
+                        const angle = Math.atan2(direction.x, direction.z);
+                        // 例：もし逆向きになったら angle にマイナスをつける、あるいは π/2 を足すなどで微調整
+                        this.el.object3D.rotation.set(0, angle, 0);
+
+                        // プレイヤーに向かって移動
+                        giraffePos.addScaledVector(direction, this.data.speed * frameFactor);
+
+                    } else {
+                        // 一定距離まで近づいたら Idle
+                        this.changeAnimation(this.data.idleClip);
+                    }
+
+                    // ボックスが低い → Eatアニメーション
+                } else if (boxPos.y < this.data.lowBoxThreshold) {
+                    this.changeAnimation(this.data.eatClip);
+
+                    // それ以外 → Idle
+                } else {
+                    this.changeAnimation(this.data.idleClip);
+                }
+            },
+
+            // アニメーションを切り替える関数
+            changeAnimation: function (clipName) {
+                if (this.currentClip === clipName) return;
+                this.currentClip = clipName;
+                this.el.setAttribute('animation-mixer', `clip: ${clipName}; loop: repeat;`);
+            }
+        });
+    </script>
+</head>
+
+<body>
+    <!-- A-Frameシーンの開始 -->
+    <a-scene loading-screen="dotsColor: white; backgroundColor: black" cursor="rayOrigin: mouse;"
+        raycaster="far: 4; objects: .clickable">
+        <!-- 環境設定 -->
+        <a-entity environment="preset: yavapai; groundTexture: none;"></a-entity>
+
+        <!-- for文でglTFのtreeをランダムに50個表示 scaleは0.02 0.02 0.02で固定 -->
+        <script>
+            for (let i = 0; i < 50; i++) {
+                let x = Math.random() * 100 - 50;
+                let z = Math.random() * 100 - 50;
+                document.write(
+                    `<a-entity gltf-model="glTF/tree/scene.gltf" scale="0.02 0.02 0.02" position="${x} 0 ${z}"></a-entity>`
+                );
+            }
+        </script>
+
+        <!-- 赤いボックス（id="redBox"） -->
+        <a-box id="redBox" grabbable scale="0.2 0.2 0.2" position="0 1 -1" color="red"></a-box>
+
+        <!-- Young Giraffeのモデル。giraffe-behavior を付与 -->
+        <a-entity id="giraffe" gltf-model="glTF/young_giraffe2/scene.gltf" scale="4 4 4" position="1 1 -20"
+            rotation="0 90 0" animation-mixer="clip: Idle; loop: repeat;" giraffe-behavior>
+        </a-entity>
+
+        <!-- プレイヤーエンティティ（カメラと制御） -->
+        <a-entity id="cameraRig">
+            <a-entity visible="false" id="player" gaze_object="0" moving look-controls
+                wasd-controls="fly:true; acceleration: 20" camera position="0 1.6 0" collision-detection>
+                <a-entity scale="0.4 0.5 0.5" position="0 1 -0.8">
+                    <a-sphere id="mybody" radius="0.3" scale="1 2 0.8"></a-sphere>
+                    <a-sphere radius="0.28" rotation="43 0 0" scale="0.6 0.4 0.25" position="0 0.12 -0.16"
+                        color="#fffaf0"></a-sphere>
+                    <a-sphere id="left-hand" radius="0.2" position="-0.3 -0.03 0.03"
+                        rotation="0.29357 0.002841 -28.9774" scale="0.3 0.85 0.3"></a-sphere>
+                    <a-sphere id="right-hand" radius="0.2" position="0.3 -0.03 0.03" rotation="0.29357 0.002841 28.9774"
+                        scale="0.3 0.85 0.3"></a-sphere>
+                    <a-sphere radius="0.25" position="-0.2 -0.25 -0.03" scale="0.3 0.5 0.275"></a-sphere>
+                    <a-sphere radius="0.25" position="0.2 -0.25 -0.03" scale="0.3 0.5 0.275"></a-sphere>
+                    <a-sphere radius="0.2" position="0.13 0.135 -0.2" rotation="-22 0 0"
+                        scale="0.055 0.07 0.055"></a-sphere>
+                    <a-sphere radius="0.2" position="-0.13 0.135 -0.2" rotation="-22 0 0"
+                        scale="0.055 0.07 0.055"></a-sphere>
+                </a-entity>
+            </a-entity>
+
+            <!-- VRコントローラ設定。VR利用時のテレポートなど -->
+            <a-entity laser-controls="hand: left" raycaster="objects: .teleportable"
+                teleport-controls="button: trigger; collisionEntities: #floor; cameraRig: #cameraRig;"
+                hand-tracking-grab-controls="hand: left;">
+            </a-entity>
+            <a-entity laser-controls="hand: right" raycaster="objects: .teleportable"
+                teleport-controls="button: trigger; collisionEntities: #floor; cameraRig: #cameraRig;"
+                hand-tracking-grab-controls="hand: right;">
+            </a-entity>
+        </a-entity>
+    </a-scene>
+</body>
+
+</html>

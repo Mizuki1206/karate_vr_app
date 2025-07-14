@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nakamura VR Hand Tracking</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background: #000;
+        }
+
+        #startButton, #nonVRButton {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 20px 40px;
+            font-size: 24px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            z-index: 100;
+        }
+        
+        #nonVRButton {
+            top: 60%;
+            background: #2196F3;
+        }
+
+        #startButton:hover {
+            background: #45a049;
+        }
+        
+        #nonVRButton:hover {
+            background: #1976D2;
+        }
+
+        #errorMessage {
+            position: absolute;
+            top: 30%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff6b6b;
+            font-size: 18px;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 100;
+            display: none;
+        }
+
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 5px;
+            z-index: 100;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 1);
+            min-width: 400px;
+        }
+
+        #hitStatus {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #00ff00;
+            font-size: 48px;
+            font-weight: bold;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px 40px;
+            border-radius: 10px;
+            z-index: 100;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="info">VRモードでハンドトラッキングを表示<br>スコア: <span id="score">0</span></div>
+    <div id="errorMessage"></div>
+    <div id="hitStatus">HIT!</div>
+    <button id="startButton">VRモードを開始</button>
+    <button id="nonVRButton">非VRモードで開始</button>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let scene, camera, renderer;
+        let hand1, hand2;
+        let handMeshes = { left: [], right: [] };
+        let headMesh;
+        let targets = [];
+        let score = 0;
+        let explosions = [];
+        let audioContext;
+        let hitSound;
+        let isVRMode = false;
+        let raycaster, mouse;
+        let hudGroup, hudText;
+
+        const HAND_JOINTS = [
+            'wrist',
+            'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip',
+            'index-finger-metacarpal', 'index-finger-phalanx-proximal', 'index-finger-phalanx-intermediate', 'index-finger-phalanx-distal', 'index-finger-tip',
+            'middle-finger-metacarpal', 'middle-finger-phalanx-proximal', 'middle-finger-phalanx-intermediate', 'middle-finger-phalanx-distal', 'middle-finger-tip',
+            'ring-finger-metacarpal', 'ring-finger-phalanx-proximal', 'ring-finger-phalanx-intermediate', 'ring-finger-phalanx-distal', 'ring-finger-tip',
+            'pinky-finger-metacarpal', 'pinky-finger-phalanx-proximal', 'pinky-finger-phalanx-intermediate', 'pinky-finger-phalanx-distal', 'pinky-finger-tip'
+        ];
+
+        // 爆発エフェクトクラス
+        class Explosion {
+            constructor(position, color) {
+                this.particles = [];
+                this.group = new THREE.Group();
+                this.group.position.copy(position);
+
+                // パーティクルを生成
+                const particleCount = 20;
+                const geometry = new THREE.SphereGeometry(0.02, 4, 4);
+
+                for (let i = 0; i < particleCount; i++) {
+                    const material = new THREE.MeshBasicMaterial({
+                        color: color,
+                        transparent: true,
+                        opacity: 1
+                    });
+
+                    const particle = new THREE.Mesh(geometry, material);
+
+                    // ランダムな方向ベクトル
+                    const direction = new THREE.Vector3(
+                        (Math.random() - 0.5) * 2,
+                        (Math.random() - 0.5) * 2,
+                        (Math.random() - 0.5) * 2
+                    ).normalize();
+
+                    particle.userData = {
+                        velocity: direction.multiplyScalar(0.1 + Math.random() * 0.1),
+                        life: 1.0
+                    };
+
+                    this.group.add(particle);
+                    this.particles.push(particle);
+                }
+
+                this.age = 0;
+                this.maxAge = 60; // フレーム数
+            }
+
+            update() {
+                this.age++;
+
+                const lifeRatio = 1 - (this.age / this.maxAge);
+
+                for (let particle of this.particles) {
+                    // 位置更新
+                    particle.position.add(particle.userData.velocity);
+
+                    // 重力
+                    particle.userData.velocity.y -= 0.005;
+
+                    // フェードアウト
+                    particle.material.opacity = lifeRatio;
+
+                    // スケール
+                    const scale = 1 + (1 - lifeRatio) * 2;
+                    particle.scale.set(scale, scale, scale);
+                }
+
+                // 寿命チェック
+                return this.age >= this.maxAge;
+            }
+        }
+
+        // ターゲットクラス
+        class Target {
+            constructor() {
+                this.group = new THREE.Group();
+
+                // 頭部ターゲット
+                const headGeometry = new THREE.SphereGeometry(0.2, 16, 16);
+                const headMaterial = new THREE.MeshBasicMaterial({
+                    color: 0xffff00,
+                    wireframe: true,
+                    transparent: true,
+                    opacity: 0.7
+                });
+                this.headTarget = new THREE.Mesh(headGeometry, headMaterial);
+                this.headTarget.position.y = 1.6;
+
+                // 左手ターゲット
+                const handGeometry = new THREE.SphereGeometry(0.12, 12, 12);
+                const leftHandMaterial = new THREE.MeshBasicMaterial({
+                    color: 0xff00ff,
+                    wireframe: true,
+                    transparent: true,
+                    opacity: 0.7
+                });
+                this.leftHandTarget = new THREE.Mesh(handGeometry, leftHandMaterial);
+                this.leftHandTarget.position.set(-0.4, 1.2, 0);
+
+                // 右手ターゲット
+                const rightHandMaterial = new THREE.MeshBasicMaterial({
+                    color: 0x00ffff,
+                    wireframe: true,
+                    transparent: true,
+                    opacity: 0.7
+                });
+                this.rightHandTarget = new THREE.Mesh(handGeometry, rightHandMaterial);
+                this.rightHandTarget.position.set(0.4, 1.2, 0);
+
+                // グループに追加
+                this.group.add(this.headTarget);
+                this.group.add(this.leftHandTarget);
+                this.group.add(this.rightHandTarget);
+
+                // 初期位置（前方遠くに配置）
+                this.group.position.z = -10;
+                // ランダムな横位置
+                this.group.position.x = (Math.random() - 0.5) * 4; // -2〜2の範囲
+                // ランダムな高さ
+                this.group.position.y = 0; // グループの基準位置は0に設定
+                
+                // 速度にもランダム性を追加
+                this.speed = 0.02 + Math.random() * 0.02; // 0.02〜0.04の範囲
+                this.checked = false;
+                this.exploded = false;
+                
+                // 各ターゲットのヒット状態を管理
+                this.headHit = false;
+                this.leftHandHit = false;
+                this.rightHandHit = false;
+
+                // ランダムに位置を設定
+                this.setRandomPose();
+            }
+
+            setRandomPose() {
+                // ランダムなポーズパターン
+                // 頭部は中央付近
+                this.headTarget.position.x = (Math.random() - 0.5) * 0.2;
+                this.headTarget.position.y = 1.5 + (Math.random() - 0.5) * 0.3;
+
+                // 左手はやや左側
+                this.leftHandTarget.position.x = -0.2 - Math.random() * 0.3;
+                this.leftHandTarget.position.y = 1.0 + Math.random() * 0.7; // 1.0〜1.7の範囲
+
+                // 右手はやや右側（青玉）
+                this.rightHandTarget.position.x = 0.2 + Math.random() * 0.3;
+                this.rightHandTarget.position.y = 1.0 + Math.random() * 0.7; // 1.0〜1.7の範囲
+            }
+
+            update() {
+                // 爆発したらすぐに削除
+                if (this.exploded) {
+                    return true;
+                }
+
+                // ボールを前方に移動
+                this.group.position.z += this.speed;
+
+                // VRモードのみ：常に判定を続ける
+                if (isVRMode && !this.exploded) {
+                    this.checkMatch();
+                }
+
+                // プレイヤーを通り過ぎたら削除
+                if (this.group.position.z > 3) {
+                    return true;
+                }
+                return false;
+            }
+
+            checkMatch() {
+                try {
+                    if (!headMesh) return;
+
+                    // ターゲット位置を取得
+                    const targetHeadPos = new THREE.Vector3();
+                    const targetLeftPos = new THREE.Vector3();
+                    const targetRightPos = new THREE.Vector3();
+                    
+                    this.headTarget.getWorldPosition(targetHeadPos);
+                    this.leftHandTarget.getWorldPosition(targetLeftPos);
+                    this.rightHandTarget.getWorldPosition(targetRightPos);
+
+                    // 頭部の距離を計算
+                    const headDist = headMesh.position.distanceTo(targetHeadPos);
+                    
+                    // 手の位置を取得（手首の位置）
+                    let leftHandDist = 999;
+                    let rightHandDist = 999;
+                    
+                    // 左手の判定
+                    if (handMeshes.left[0] && handMeshes.left[0].visible) {
+                        leftHandDist = handMeshes.left[0].position.distanceTo(targetLeftPos);
+                    }
+                    
+                    // 右手の判定
+                    if (handMeshes.right[0] && handMeshes.right[0].visible) {
+                        rightHandDist = handMeshes.right[0].position.distanceTo(targetRightPos);
+                    }
+
+                    // 判定閾値
+                    const headThreshold = 0.4; // 頭部の判定を厳しくする
+                    const handThreshold = 0.3;
+                    
+                    console.log('Distances - Head:', headDist.toFixed(2), 'Left:', leftHandDist.toFixed(2), 'Right:', rightHandDist.toFixed(2));
+
+                    // 座標情報を詳細に表示
+                    let leftHandPosStr = "未検出";
+                    if (handMeshes.left[0] && handMeshes.left[0].visible) {
+                        const wristMesh = handMeshes.left[0];
+                        leftHandPosStr = `(${wristMesh.position.x.toFixed(2)}, ${wristMesh.position.y.toFixed(2)}, ${wristMesh.position.z.toFixed(2)})`;
+                    }
+                    
+                    let rightHandPosStr = "未検出";
+                    if (handMeshes.right[0] && handMeshes.right[0].visible) {
+                        const wristMesh = handMeshes.right[0];
+                        rightHandPosStr = `(${wristMesh.position.x.toFixed(2)}, ${wristMesh.position.y.toFixed(2)}, ${wristMesh.position.z.toFixed(2)})`;
+                    }
+                    
+                    document.getElementById('info').innerHTML = `
+                        <div style="line-height: 1.8;">
+                            <div>VRモード</div>
+                            <div>スコア: <span style="color: #ffff00;">${score}</span></div>
+                            <div>頭部距離: <span style="color: ${headDist < headThreshold ? '#00ff00' : '#ffff00'};">${headDist.toFixed(2)}m</span></div>
+                            <div>左手距離: <span style="color: ${leftHandDist < handThreshold ? '#00ff00' : '#ff00ff'};">${leftHandDist.toFixed(2)}m</span></div>
+                            <div>右手距離: <span style="color: ${rightHandDist < handThreshold ? '#00ff00' : '#00ffff'};">${rightHandDist.toFixed(2)}m</span></div>
+                        </div>
+                    `;
+                    
+                    // VR HUDの更新（全部位の距離を表示）
+                    updateVRHUDAllDistances(headDist.toFixed(2), leftHandDist.toFixed(2), rightHandDist.toFixed(2));
+
+                    // 衝突ルール：
+                    // - 右手とシアン（青）のボール
+                    // - 左手とマゼンタのボール
+                    // - 頭部と黄色のボール
+                    // それ以外の組み合わせでは反応しない
+                    
+                    let hitCount = 0;
+                    let explosionPositions = [];
+                    
+                    // 右手とシアンボール（右手ターゲット）の判定
+                    // 右手が右手ターゲットに近い場合のみ判定
+                    if (rightHandDist < handThreshold && !this.rightHandHit) {
+                        // 他のターゲットとの距離も確認して、最も近いのが正しいターゲットか確認
+                        const rightToLeft = handMeshes.right[0] ? handMeshes.right[0].position.distanceTo(targetLeftPos) : 999;
+                        const rightToHead = handMeshes.right[0] ? handMeshes.right[0].position.distanceTo(targetHeadPos) : 999;
+                        
+                        // 右手が右手ターゲット（シアン）に最も近い場合のみヒット
+                        if (rightHandDist < rightToLeft && rightHandDist < rightToHead) {
+                            hitCount++;
+                            score += 100;
+                            explosionPositions.push({pos: targetRightPos, color: 0x00ffff});
+                            this.rightHandHit = true;
+                            this.rightHandTarget.visible = false;
+                        }
+                    }
+                    
+                    // 左手とマゼンタボール（左手ターゲット）の判定
+                    // 左手が左手ターゲットに近い場合のみ判定
+                    if (leftHandDist < handThreshold && !this.leftHandHit) {
+                        // 他のターゲットとの距離も確認して、最も近いのが正しいターゲットか確認
+                        const leftToRight = handMeshes.left[0] ? handMeshes.left[0].position.distanceTo(targetRightPos) : 999;
+                        const leftToHead = handMeshes.left[0] ? handMeshes.left[0].position.distanceTo(targetHeadPos) : 999;
+                        
+                        // 左手が左手ターゲット（マゼンタ）に最も近い場合のみヒット
+                        if (leftHandDist < leftToRight && leftHandDist < leftToHead) {
+                            hitCount++;
+                            score += 100;
+                            explosionPositions.push({pos: targetLeftPos, color: 0xff00ff});
+                            this.leftHandHit = true;
+                            this.leftHandTarget.visible = false;
+                        }
+                    }
+                    
+                    // 頭部と黄色ボール（頭部ターゲット）の判定
+                    // 頭部が頭部ターゲットに近い場合のみ判定
+                    if (headDist < headThreshold && !this.headHit) {
+                        // 他のターゲットとの距離も確認して、最も近いのが正しいターゲットか確認
+                        const headToLeft = headMesh.position.distanceTo(targetLeftPos);
+                        const headToRight = headMesh.position.distanceTo(targetRightPos);
+                        
+                        // 頭部が頭部ターゲット（黄色）に最も近い場合のみヒット
+                        if (headDist < headToLeft && headDist < headToRight) {
+                            hitCount++;
+                            score += 100;
+                            explosionPositions.push({pos: targetHeadPos, color: 0xffff00});
+                            this.headHit = true;
+                            this.headTarget.visible = false;
+                        }
+                    }
+                    
+                    // 1つでもヒットしたら爆発エフェクトを生成
+                    if (hitCount > 0) {
+                        // ヒットした部位だけ爆発エフェクトを生成
+                        for (let expData of explosionPositions) {
+                            const explosion = new Explosion(expData.pos, expData.color);
+                            scene.add(explosion.group);
+                            explosions.push(explosion);
+                        }
+
+                        // 全部ヒットしたら削除
+                        if (this.headHit && this.leftHandHit && this.rightHandHit) {
+                            this.exploded = true;
+                            this.group.visible = false;
+                        }
+
+                        // 効果音を再生
+                        playHitSound();
+
+                        // HIT表示（ヒット数に応じてメッセージを変更）
+                        showHitMessage(hitCount);
+                    } else {
+                        // 失敗 - VRモードでは何もしない（赤くしない）
+                        // 非VRモードの場合のみ赤く変更
+                        if (!isVRMode) {
+                            this.group.children.forEach(child => {
+                                child.material.color.setHex(0xff0000);
+                            });
+                        }
+                    }
+
+                    updateScore();
+                } catch (error) {
+                    console.error('Error in checkMatch:', error);
+                }
+            }
+        }
+
+        function updateScore() {
+            document.getElementById('score').textContent = score;
+        }
+
+        // 音声の初期化
+        function initAudio() {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+            // 簡単な爆発音を生成
+            createHitSound();
+        }
+
+        // 爆発音を生成
+        function createHitSound() {
+            // ホワイトノイズを使った爆発音
+            const bufferSize = audioContext.sampleRate * 0.3; // 0.3秒
+            const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+            const data = buffer.getChannelData(0);
+
+            for (let i = 0; i < bufferSize; i++) {
+                // エンベロープで減衰するホワイトノイズ
+                const envelope = Math.pow(1 - i / bufferSize, 2);
+                data[i] = (Math.random() * 2 - 1) * envelope * 0.5;
+            }
+
+            hitSound = buffer;
+        }
+
+        // 効果音を再生
+        function playHitSound() {
+            if (!audioContext || !hitSound) return;
+
+            const source = audioContext.createBufferSource();
+            source.buffer = hitSound;
+
+            // 音量調整
+            const gainNode = audioContext.createGain();
+            gainNode.gain.value = 0.5;
+
+            source.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            source.start(0);
+        }
+
+        // HIT表示
+        function showHitMessage(hitCount = 1) {
+            const hitDiv = document.getElementById('hitStatus');
+            
+            // ヒット数に応じてメッセージを変更
+            if (hitCount === 3) {
+                hitDiv.textContent = 'PERFECT!';
+                hitDiv.style.color = '#ff00ff';
+            } else if (hitCount === 2) {
+                hitDiv.textContent = 'GREAT!';
+                hitDiv.style.color = '#00ffff';
+            } else {
+                hitDiv.textContent = 'HIT!';
+                hitDiv.style.color = '#00ff00';
+            }
+            
+            hitDiv.style.display = 'block';
+
+            // 1秒後に非表示
+            setTimeout(() => {
+                hitDiv.style.display = 'none';
+            }, 1000);
+        }
+        
+        // VR用HUDの作成
+        function createVRHUD() {
+            hudGroup = new THREE.Group();
+            
+            // 背景パネル
+            const panelGeometry = new THREE.PlaneGeometry(1.2, 0.6);
+            const panelMaterial = new THREE.MeshBasicMaterial({
+                color: 0x000000,
+                transparent: true,
+                opacity: 0.7,
+                side: THREE.DoubleSide
+            });
+            const panel = new THREE.Mesh(panelGeometry, panelMaterial);
+            hudGroup.add(panel);
+            
+            // テキスト用のCanvas
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 256;
+            const context = canvas.getContext('2d');
+            
+            // テキストテクスチャ
+            const texture = new THREE.CanvasTexture(canvas);
+            const textMaterial = new THREE.MeshBasicMaterial({
+                map: texture,
+                transparent: true,
+                side: THREE.DoubleSide
+            });
+            
+            const textGeometry = new THREE.PlaneGeometry(1.0, 0.5);
+            hudText = new THREE.Mesh(textGeometry, textMaterial);
+            hudText.position.z = 0.01; // パネルの少し前
+            hudGroup.add(hudText);
+            
+            // 初期非表示
+            hudGroup.visible = false;
+            scene.add(hudGroup);
+            
+            // Canvas更新関数を保存
+            hudText.userData.updateText = (rightHandPos, targetPos, distance) => {
+                context.clearRect(0, 0, canvas.width, canvas.height);
+                context.fillStyle = 'white';
+                context.font = 'bold 32px Arial';
+                context.textAlign = 'center';
+                
+                // スコア
+                context.fillStyle = '#ffff00';
+                context.fillText(`スコア: ${score}`, canvas.width / 2, 50);
+                
+                // 右手座標
+                context.fillStyle = '#00ffff';
+                context.font = 'bold 24px Arial';
+                context.fillText(`右手: ${rightHandPos}`, canvas.width / 2, 100);
+                
+                // 青玉座標
+                context.fillText(`青玉: ${targetPos}`, canvas.width / 2, 140);
+                
+                // 距離
+                context.fillStyle = distance < 0.3 ? '#00ff00' : '#ffffff';
+                context.font = 'bold 28px Arial';
+                context.fillText(`距離: ${distance}m`, canvas.width / 2, 190);
+                
+                texture.needsUpdate = true;
+            };
+        }
+        
+        // HUDの位置更新
+        function updateVRHUD(rightHandPosStr, targetPosStr, distance) {
+            if (!hudGroup || !isVRMode || !renderer.xr.isPresenting) return;
+            
+            // カメラの前方に配置
+            const dist = 2; // カメラから2m前方
+            const height = -0.3; // 少し下
+            
+            hudGroup.position.copy(camera.position);
+            hudGroup.position.add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(dist));
+            hudGroup.position.y += height;
+            
+            // カメラに向ける
+            hudGroup.lookAt(camera.position);
+            hudGroup.visible = true;
+            
+            // テキスト更新
+            if (hudText.userData.updateText) {
+                hudText.userData.updateText(rightHandPosStr, targetPosStr, distance);
+            }
+        }
+        
+        // VR HUDに座標のみを表示する関数
+        function updateVRHUDCoordinates(headPosStr, leftHandPosStr, rightHandPosStr) {
+            if (!hudGroup || !isVRMode || !renderer.xr.isPresenting) return;
+            
+            // カメラの前方に配置
+            const dist = 2; // カメラから2m前方
+            const height = -0.3; // 少し下
+            
+            hudGroup.position.copy(camera.position);
+            hudGroup.position.add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(dist));
+            hudGroup.position.y += height;
+            
+            // カメラに向ける
+            hudGroup.lookAt(camera.position);
+            hudGroup.visible = true;
+            
+            // テキスト更新（座標のみ版）
+            if (hudText.userData.updateText) {
+                const context = hudText.material.map.image.getContext('2d');
+                context.clearRect(0, 0, 512, 256);
+                context.fillStyle = 'white';
+                context.font = 'bold 32px Arial';
+                context.textAlign = 'center';
+                
+                // スコア
+                context.fillStyle = '#ffff00';
+                context.fillText(`スコア: ${score}`, 256, 50);
+                
+                // 頭部座標
+                context.fillStyle = '#00ff00';
+                context.font = 'bold 24px Arial';
+                context.fillText(`頭部: ${headPosStr}`, 256, 100);
+                
+                // 左手座標
+                context.fillStyle = '#ff00ff';
+                context.fillText(`左手: ${leftHandPosStr}`, 256, 140);
+                
+                // 右手座標
+                context.fillStyle = '#00ffff';
+                context.fillText(`右手: ${rightHandPosStr}`, 256, 180);
+                
+                hudText.material.map.needsUpdate = true;
+            }
+        }
+        
+        // VR HUDに全部位の距離を表示する関数
+        function updateVRHUDAllDistances(headDist, leftDist, rightDist) {
+            if (!hudGroup || !isVRMode || !renderer.xr.isPresenting) return;
+            
+            const headThreshold = 0.4;
+            const handThreshold = 0.3;
+            
+            // カメラの前方に配置
+            const dist = 2;
+            const height = -0.3;
+            
+            hudGroup.position.copy(camera.position);
+            hudGroup.position.add(camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(dist));
+            hudGroup.position.y += height;
+            
+            // カメラに向ける
+            hudGroup.lookAt(camera.position);
+            hudGroup.visible = true;
+            
+            // テキスト更新
+            if (hudText.userData.updateText) {
+                const context = hudText.material.map.image.getContext('2d');
+                context.clearRect(0, 0, 512, 256);
+                context.fillStyle = 'white';
+                context.font = 'bold 32px Arial';
+                context.textAlign = 'center';
+                
+                // スコア
+                context.fillStyle = '#ffff00';
+                context.fillText(`スコア: ${score}`, 256, 50);
+                
+                // 頭部距離
+                context.fillStyle = headDist < headThreshold ? '#00ff00' : '#ffff00';
+                context.font = 'bold 24px Arial';
+                context.fillText(`頭部: ${headDist}m`, 256, 100);
+                
+                // 左手距離
+                context.fillStyle = leftDist < handThreshold ? '#00ff00' : '#ff00ff';
+                context.fillText(`左手: ${leftDist}m`, 256, 140);
+                
+                // 右手距離
+                context.fillStyle = rightDist < handThreshold ? '#00ff00' : '#00ffff';
+                context.fillText(`右手: ${rightDist}m`, 256, 180);
+                
+                hudText.material.map.needsUpdate = true;
+            }
+        }
+
+        function init() {
+            // シーン作成
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x101010);
+
+            // カメラ
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 1.6, 3);
+
+            // レンダラー
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            // ライト
+            const light = new THREE.HemisphereLight(0xffffff, 0x444444);
+            light.position.set(0, 20, 0);
+            scene.add(light);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff);
+            directionalLight.position.set(0, 20, 10);
+            scene.add(directionalLight);
+
+            // 床
+            const floorGeometry = new THREE.PlaneGeometry(20, 20);
+            const floorMaterial = new THREE.MeshStandardMaterial({
+                color: 0x222222,
+                roughness: 0.8,
+                metalness: 0.2
+            });
+            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            scene.add(floor);
+
+            // グリッド
+            const gridHelper = new THREE.GridHelper(20, 20);
+            scene.add(gridHelper);
+
+            // ハンドトラッキングの設定
+            hand1 = renderer.xr.getHand(0);
+            hand2 = renderer.xr.getHand(1);
+
+            scene.add(hand1);
+            scene.add(hand2);
+
+            // 手の関節用の球体を作成
+            // 逆の割り当てを試す（hand1を右手、hand2を左手として）
+            createHandJoints(hand1, 'right');
+            createHandJoints(hand2, 'left');
+            
+            // デバッグ用：手の割り当てを確認
+            console.log('Hand tracking setup - hand1 as right, hand2 as left');
+
+            // 頭部の表示用メッシュを作成
+            const headGeometry = new THREE.SphereGeometry(0.15, 32, 32);
+            const headMaterial = new THREE.MeshStandardMaterial({
+                color: 0x00ff00,
+                roughness: 0.5,
+                metalness: 0.3
+            });
+            headMesh = new THREE.Mesh(headGeometry, headMaterial);
+            scene.add(headMesh);
+            
+            // VR用HUDの作成
+            createVRHUD();
+
+            // VRボタンの設定
+            document.getElementById('startButton').addEventListener('click', async () => {
+                // 音声の初期化（ユーザーインタラクションが必要）
+                initAudio();
+
+                if ('xr' in navigator) {
+                    try {
+                        const isSupported = await navigator.xr.isSessionSupported('immersive-vr');
+                        if (isSupported) {
+                            // ハンドトラッキングを含むセッションオプション
+                            const sessionInit = {
+                                requiredFeatures: ['hand-tracking'],
+                                optionalFeatures: ['local-floor', 'bounded-floor']
+                            };
+
+                            const session = await navigator.xr.requestSession('immersive-vr', sessionInit);
+                            renderer.xr.setSession(session);
+                            document.getElementById('startButton').style.display = 'none';
+                            // document.getElementById('info').textContent = 'ハンドトラッキング中...'; // 情報表示は残す
+                            isVRMode = true;
+                        } else {
+                            showError('VRがサポートされていません。');
+                        }
+                    } catch (e) {
+                        showError('VRセッションの開始に失敗しました: ' + e.message);
+                        console.error(e);
+                    }
+                } else {
+                    showError('WebXRがサポートされていません。');
+                }
+            });
+
+            // 非VRモードボタンの設定
+            document.getElementById('nonVRButton').addEventListener('click', () => {
+                // 音声の初期化
+                initAudio();
+                
+                document.getElementById('startButton').style.display = 'none';
+                document.getElementById('nonVRButton').style.display = 'none';
+                document.getElementById('info').textContent = '非VRモード - クリックでターゲットを破壊';
+                
+                isVRMode = false;
+                
+                // Raycasterとマウスの初期化
+                raycaster = new THREE.Raycaster();
+                mouse = new THREE.Vector2();
+                
+                // マウスクリックイベントの設定
+                renderer.domElement.addEventListener('click', onMouseClick);
+                renderer.domElement.addEventListener('mousemove', onMouseMove);
+                
+                // 非VRモードでは頭部メッシュを非表示
+                headMesh.visible = false;
+                
+                // カメラを少し後ろに
+                camera.position.set(0, 1.6, 5);
+                
+                // ゲーム開始
+                startNonVRGame();
+            });
+
+            // ウィンドウリサイズ
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function createHandJoints(hand, handedness) {
+            const jointMaterial = new THREE.MeshStandardMaterial({
+                color: handedness === 'left' ? 0xff0000 : 0x0000ff,
+                roughness: 0.5,
+                metalness: 0.5
+            });
+
+            const jointGeometry = new THREE.SphereGeometry(0.01, 16, 16);
+
+            for (let i = 0; i < HAND_JOINTS.length; i++) {
+                const jointMesh = new THREE.Mesh(jointGeometry, jointMaterial);
+                jointMesh.visible = false;
+                hand.add(jointMesh);
+                handMeshes[handedness].push(jointMesh);
+            }
+        }
+
+        function updateHandJoints() {
+            // 右手の更新（hand1）
+            if (hand1.joints) {
+                for (let i = 0; i < HAND_JOINTS.length; i++) {
+                    const joint = hand1.joints[HAND_JOINTS[i]];
+                    const mesh = handMeshes.right[i];
+
+                    if (joint) {
+                        mesh.position.copy(joint.position);
+                        mesh.quaternion.copy(joint.quaternion);
+                        mesh.visible = true;
+                        
+                        // 手首の座標をデバッグ出力
+                        if (HAND_JOINTS[i] === 'wrist') {
+                            console.log('Right wrist position:', joint.position.x.toFixed(2), joint.position.y.toFixed(2), joint.position.z.toFixed(2));
+                        }
+                    } else {
+                        mesh.visible = false;
+                    }
+                }
+            }
+
+            // 左手の更新（hand2）
+            if (hand2.joints) {
+                for (let i = 0; i < HAND_JOINTS.length; i++) {
+                    const joint = hand2.joints[HAND_JOINTS[i]];
+                    const mesh = handMeshes.left[i];
+
+                    if (joint) {
+                        mesh.position.copy(joint.position);
+                        mesh.quaternion.copy(joint.quaternion);
+                        mesh.visible = true;
+                        
+                        // 手首の座標をデバッグ出力
+                        if (HAND_JOINTS[i] === 'wrist') {
+                            console.log('Left wrist position:', joint.position.x.toFixed(2), joint.position.y.toFixed(2), joint.position.z.toFixed(2));
+                        }
+                    } else {
+                        mesh.visible = false;
+                    }
+                }
+            }
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        // 手の座標を常に更新する関数
+        function updateHandCoordinatesDisplay() {
+            // 左手の座標（手首のメッシュ位置を取得）
+            let leftHandPosStr = "未検出";
+            // wristは配列の最初の要素（インデックス0）
+            if (handMeshes.left[0] && handMeshes.left[0].visible) {
+                const wristMesh = handMeshes.left[0];
+                leftHandPosStr = `(${wristMesh.position.x.toFixed(2)}, ${wristMesh.position.y.toFixed(2)}, ${wristMesh.position.z.toFixed(2)})`;
+            }
+            
+            // 右手の座標（手首のメッシュ位置を取得）
+            let rightHandPosStr = "未検出";
+            // wristは配列の最初の要素（インデックス0）
+            if (handMeshes.right[0] && handMeshes.right[0].visible) {
+                const wristMesh = handMeshes.right[0];
+                rightHandPosStr = `(${wristMesh.position.x.toFixed(2)}, ${wristMesh.position.y.toFixed(2)}, ${wristMesh.position.z.toFixed(2)})`;
+            }
+            
+            // 頭部の座標
+            let headPosStr = "未検出";
+            if (headMesh) {
+                headPosStr = `(${headMesh.position.x.toFixed(2)}, ${headMesh.position.y.toFixed(2)}, ${headMesh.position.z.toFixed(2)})`;
+            }
+            
+            // HTML情報表示を更新
+            document.getElementById('info').innerHTML = `
+                <div style="line-height: 1.8;">
+                    <div>VRモード</div>
+                    <div>スコア: <span style="color: #ffff00;">${score}</span></div>
+                    <div>頭部座標: <span style="color: #00ff00;">${headPosStr}</span></div>
+                    <div>左手座標: <span style="color: #ff00ff;">${leftHandPosStr}</span></div>
+                    <div>右手座標: <span style="color: #00ffff;">${rightHandPosStr}</span></div>
+                </div>
+            `;
+            
+            // VR HUD用のテキスト更新関数を呼び出す
+            updateVRHUDCoordinates(headPosStr, leftHandPosStr, rightHandPosStr);
+        }
+        
+        // 非VRモード用の関数
+        function startNonVRGame() {
+            // ゲーム開始フラグ
+            animate();
+        }
+        
+        function onMouseMove(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        }
+        
+        function onMouseClick(event) {
+            // Raycasterを更新
+            raycaster.setFromCamera(mouse, camera);
+            
+            // すべてのターゲットとの交差判定
+            for (let target of targets) {
+                const intersects = raycaster.intersectObjects(target.group.children);
+                
+                if (intersects.length > 0 && !target.exploded) {
+                    // ヒット処理
+                    target.exploded = true;
+                    score += 100;
+                    
+                    // 爆発エフェクト
+                    const hitPos = intersects[0].point;
+                    const explosion = new Explosion(hitPos, 0xffff00);
+                    scene.add(explosion.group);
+                    explosions.push(explosion);
+                    
+                    // ターゲットを非表示
+                    target.group.visible = false;
+                    
+                    // 効果音再生
+                    playHitSound();
+                    
+                    // HIT表示
+                    showHitMessage();
+                    
+                    // スコア更新
+                    updateScore();
+                    
+                    break;
+                }
+            }
+        }
+
+        function animate() {
+            renderer.setAnimationLoop(render);
+        }
+
+        function render() {
+            // VRモードの場合
+            if (renderer.xr.isPresenting) {
+                // ハンドトラッキングの更新
+                updateHandJoints();
+                
+                // カメラの位置を頭部メッシュに反映
+                headMesh.position.copy(camera.position);
+                headMesh.quaternion.copy(camera.quaternion);
+                isVRMode = true;
+                
+                // VRモードで常に手の座標を更新
+                updateHandCoordinatesDisplay();
+            }
+            
+            // ゲームロジック（VRモードと非VRモード共通）
+            if (isVRMode || (!isVRMode && !renderer.xr.isPresenting)) {
+                // 定期的に新しいターゲットを生成（頻度を少し下げる）
+                if (Math.random() < 0.01) {
+                    const target = new Target();
+                    scene.add(target.group);
+                    targets.push(target);
+                }
+
+                // ターゲットの更新
+                for (let i = targets.length - 1; i >= 0; i--) {
+                    // 非VRモードではcheckMatchをスキップ
+                    if (!isVRMode) {
+                        targets[i].checked = true; // 自動判定をスキップ
+                    }
+                    
+                    if (targets[i].update()) {
+                        scene.remove(targets[i].group);
+                        targets.splice(i, 1);
+                    }
+                }
+
+                // 爆発エフェクトの更新
+                for (let i = explosions.length - 1; i >= 0; i--) {
+                    if (explosions[i].update()) {
+                        scene.remove(explosions[i].group);
+                        explosions.splice(i, 1);
+                    }
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // 初期化と開始
+        init();
+        animate();
+    </script>
+</body>
+
+</html>

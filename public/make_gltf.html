@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <title>画像型抜き板GLTF生成</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+        }
+
+        #container {
+            display: flex;
+            height: 100vh;
+        }
+
+        #left-panel {
+            width: 50%;
+            display: flex;
+            flex-direction: column;
+            background: white;
+            border-right: 2px solid #ccc;
+        }
+
+        #image-canvas {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            background: #f8f8f8;
+        }
+
+        #canvas2d {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 2px solid #333;
+            background: white;
+        }
+
+        #right-panel {
+            width: 50%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #canvas-container {
+            flex: 1;
+            position: relative;
+        }
+
+        #controls {
+            padding: 20px;
+            background: white;
+            box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
+            overflow-y: auto;
+            max-height: 300px;
+        }
+
+        h3 {
+            margin-top: 15px;
+            margin-bottom: 10px;
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 5px;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .control-group {
+            margin: 15px 0;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input[type="range"] {
+            width: 100%;
+        }
+
+        .value-display {
+            text-align: right;
+            color: #666;
+        }
+
+        #upload-area {
+            padding: 15px;
+            background: #eee;
+            text-align: center;
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        #upload-button {
+            padding: 15px 30px;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 18px;
+        }
+
+        #upload-button:hover {
+            background: #218838;
+        }
+
+        #threshold-control {
+            padding: 15px;
+            background: #f8f8f8;
+            display: none;
+        }
+
+        #edit-tools {
+            padding: 15px;
+            background: #eee;
+            display: none;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .tool-button {
+            padding: 8px 15px;
+            background: white;
+            border: 2px solid #333;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .tool-button:hover {
+            background: #f0f0f0;
+        }
+
+        .tool-button.active {
+            background: #333;
+            color: white;
+        }
+
+        #info {
+            padding: 10px;
+            background: #fff3cd;
+            color: #856404;
+            text-align: center;
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="container">
+        <div id="left-panel">
+            <div id="info">
+                人型の画像をアップロードしてください
+            </div>
+            <div id="upload-area">
+                <input type="file" id="file-input" accept="image/*">
+                <button id="upload-button">画像を選択</button>
+            </div>
+            <div id="threshold-control">
+                <label>切り抜き感度: <span id="threshold-value">128</span></label>
+                <input type="range" id="threshold" min="0" max="255" value="128">
+                <button id="process-image">画像を処理</button>
+            </div>
+            <div id="edit-tools">
+                <label>ブラシサイズ: <span id="brush-size-value">10</span></label>
+                <input type="range" id="brush-size" min="3" max="50" value="10">
+                <button class="tool-button active" id="draw-tool">追加</button>
+                <button class="tool-button" id="erase-tool">削除</button>
+                <button id="clear-edits">編集をリセット</button>
+            </div>
+            <div id="image-canvas">
+                <canvas id="canvas2d"></canvas>
+            </div>
+        </div>
+
+        <div id="right-panel">
+            <div id="canvas-container"></div>
+            <div id="controls">
+                <h3>板の設定</h3>
+                <div class="control-group">
+                    <label>板の厚み: <span class="value-display" id="thickness-value">0.1</span></label>
+                    <input type="range" id="thickness" min="0.05" max="0.5" step="0.05" value="0.1">
+                </div>
+
+                <div class="control-group">
+                    <label>板の幅: <span class="value-display" id="board-width-value">4</span></label>
+                    <input type="range" id="board-width" min="2" max="6" step="0.1" value="4">
+                </div>
+
+                <div class="control-group">
+                    <label>板の高さ: <span class="value-display" id="board-height-value">4</span></label>
+                    <input type="range" id="board-height" min="2" max="6" step="0.1" value="4">
+                </div>
+
+                <div class="control-group" style="display: none;">
+                    <label>解像度: <span class="value-display" id="resolution-value">50</span></label>
+                    <input type="range" id="resolution" min="20" max="100" step="10" value="50">
+                </div>
+
+                <div class="control-group">
+                    <label>板の色:</label>
+                    <input type="color" id="board-color" value="#8B4513" style="width: 100%; height: 40px; cursor: pointer;">
+                </div>
+
+                <h3>エクスポート</h3>
+                <button id="update-model">3Dモデルを更新</button>
+                <button id="export">GLTFファイルをダウンロード</button>
+                <button id="export-binary">GLBファイルをダウンロード</button>
+
+                <p style="margin-top: 20px; font-size: 14px; color: #666;">
+                    右側3Dビュー：マウスでドラッグして回転<br>
+                    マウスホイールでズーム
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+
+        let scene, camera, renderer, controls;
+        let boardMesh;
+        let canvas2d, ctx;
+        let uploadedImage = null;
+        let isDrawing = false;
+        let currentTool = 'draw';
+        let brushSize = 10;
+        let processedImageData = null;
+
+        function init() {
+            // 2Dキャンバスの初期化
+            init2DCanvas();
+
+            // 3Dシーンの初期化
+            init3DScene();
+
+            // イベントリスナー設定
+            setupEventListeners();
+
+            // 初期板を生成
+            updateBoard();
+
+            // アニメーション開始
+            animate();
+        }
+
+        function init2DCanvas() {
+            canvas2d = document.getElementById('canvas2d');
+            ctx = canvas2d.getContext('2d');
+
+            // キャンバスサイズ設定
+            canvas2d.width = 400;
+            canvas2d.height = 400;
+
+            // 初期状態を白で塗りつぶし
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas2d.width, canvas2d.height);
+
+            // マウスイベント
+            canvas2d.addEventListener('mousedown', startDrawing);
+            canvas2d.addEventListener('mousemove', draw);
+            canvas2d.addEventListener('mouseup', stopDrawing);
+            canvas2d.addEventListener('mouseout', stopDrawing);
+        }
+
+        function init3DScene() {
+            // シーン設定
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf0f0f0);
+
+            // カメラ設定
+            const container = document.getElementById('canvas-container');
+            camera = new THREE.PerspectiveCamera(
+                75,
+                container.clientWidth / container.clientHeight,
+                0.1,
+                1000
+            );
+            camera.position.set(0, 0, 5);
+
+            // レンダラー設定
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // コントロール設定
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            // ライト設定
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.4);
+            directionalLight.position.set(5, 5, 5);
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
+
+            // グリッド
+            const gridHelper = new THREE.GridHelper(10, 10);
+            scene.add(gridHelper);
+
+            // リサイズ対応
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function processImage() {
+            if (!uploadedImage) return;
+
+            // キャンバスに画像を描画
+            ctx.clearRect(0, 0, canvas2d.width, canvas2d.height);
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas2d.width, canvas2d.height);
+
+            // アスペクト比を保ちながら画像をフィット
+            const scale = Math.min(canvas2d.width / uploadedImage.width, canvas2d.height / uploadedImage.height);
+            const width = uploadedImage.width * scale;
+            const height = uploadedImage.height * scale;
+            const x = (canvas2d.width - width) / 2;
+            const y = (canvas2d.height - height) / 2;
+
+            ctx.drawImage(uploadedImage, x, y, width, height);
+
+            // 画像データを取得して処理
+            const imageData = ctx.getImageData(0, 0, canvas2d.width, canvas2d.height);
+            const threshold = parseInt(document.getElementById('threshold').value);
+
+            // 二値化処理
+            const pixels = imageData.data;
+            for (let i = 0; i < pixels.length; i += 4) {
+                const gray = pixels[i] * 0.299 + pixels[i + 1] * 0.587 + pixels[i + 2] * 0.114;
+                if (gray < threshold) {
+                    pixels[i] = pixels[i + 1] = pixels[i + 2] = 0; // 黒
+                } else {
+                    pixels[i] = pixels[i + 1] = pixels[i + 2] = 255; // 白
+                }
+            }
+
+            ctx.putImageData(imageData, 0, 0);
+
+            // 処理後の画像データを保存
+            processedImageData = ctx.getImageData(0, 0, canvas2d.width, canvas2d.height);
+
+            // 編集ツールを表示
+            document.getElementById('edit-tools').style.display = 'flex';
+
+            // 3Dモデルを更新
+            updateBoard();
+        }
+
+        function startDrawing(e) {
+            if (!processedImageData) return;
+
+            isDrawing = true;
+            const rect = canvas2d.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+        }
+
+        function draw(e) {
+            if (!isDrawing || !processedImageData) return;
+
+            const rect = canvas2d.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.lineWidth = brushSize;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = currentTool === 'draw' ? 'black' : 'white';
+
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+        }
+
+        function stopDrawing() {
+            if (isDrawing) {
+                isDrawing = false;
+                ctx.beginPath();
+                // 編集後に3Dモデルを更新
+                updateBoard();
+            }
+        }
+
+        function updateBoard() {
+            // 既存のメッシュを削除
+            if (boardMesh) {
+                scene.remove(boardMesh);
+            }
+
+            const thickness = parseFloat(document.getElementById('thickness').value);
+            const boardWidth = parseFloat(document.getElementById('board-width').value);
+            const boardHeight = parseFloat(document.getElementById('board-height').value);
+
+            // キャンバスから画像データを取得
+            const imageData = ctx.getImageData(0, 0, canvas2d.width, canvas2d.height);
+
+            // 外側の板を作成
+            const boardShape = new THREE.Shape();
+            boardShape.moveTo(-boardWidth / 2, -boardHeight / 2);
+            boardShape.lineTo(boardWidth / 2, -boardHeight / 2);
+            boardShape.lineTo(boardWidth / 2, boardHeight / 2);
+            boardShape.lineTo(-boardWidth / 2, boardHeight / 2);
+            boardShape.lineTo(-boardWidth / 2, -boardHeight / 2);
+
+            // 簡略化された輪郭抽出
+            const contours = findContours(imageData);
+
+            // 各輪郭を穴として追加
+            contours.forEach(contour => {
+                if (contour.length > 20) {
+                    // 輪郭を滑らかにする
+                    const smoothed = smoothContour(contour, 5);
+
+                    const hole = new THREE.Shape();
+                    const firstPoint = smoothed[0];
+                    const firstX = (firstPoint.x / canvas2d.width - 0.5) * boardWidth;
+                    const firstY = (0.5 - firstPoint.y / canvas2d.height) * boardHeight;
+                    hole.moveTo(firstX, firstY);
+
+                    for (let i = 1; i < smoothed.length; i++) {
+                        const point = smoothed[i];
+                        const x = (point.x / canvas2d.width - 0.5) * boardWidth;
+                        const y = (0.5 - point.y / canvas2d.height) * boardHeight;
+                        hole.lineTo(x, y);
+                    }
+
+                    hole.lineTo(firstX, firstY);
+                    boardShape.holes.push(hole);
+                }
+            });
+
+            // 押し出しジオメトリを作成
+            const extrudeSettings = {
+                depth: thickness,
+                bevelEnabled: true,
+                bevelThickness: 0.02,
+                bevelSize: 0.02,
+                bevelSegments: 2
+            };
+
+            const geometry = new THREE.ExtrudeGeometry(boardShape, extrudeSettings);
+
+            // マテリアル設定（カラーピッカーから色を取得）
+            const colorPicker = document.getElementById('board-color');
+            const material = new THREE.MeshPhongMaterial({
+                color: new THREE.Color(colorPicker.value),
+                side: THREE.DoubleSide
+            });
+
+            // メッシュ作成
+            boardMesh = new THREE.Mesh(geometry, material);
+            boardMesh.castShadow = true;
+            boardMesh.receiveShadow = true;
+
+            // 中心を調整
+            geometry.computeBoundingBox();
+            const box = geometry.boundingBox;
+            const center = box.getCenter(new THREE.Vector3());
+            geometry.translate(-center.x, -center.y, -center.z);
+
+            scene.add(boardMesh);
+        }
+
+        // シンプルな輪郭検出
+        function findContours(imageData) {
+            const width = imageData.width;
+            const height = imageData.height;
+            const pixels = imageData.data;
+            const contours = [];
+            const visited = new Array(width * height).fill(false);
+
+            // エッジ検出
+            for (let y = 1; y < height - 1; y++) {
+                for (let x = 1; x < width - 1; x++) {
+                    const idx = (y * width + x) * 4;
+
+                    // 黒いピクセルでエッジを探す
+                    if (pixels[idx] < 128 && !visited[y * width + x]) {
+                        // 周囲に白いピクセルがあるかチェック
+                        let isEdge = false;
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                if (dx === 0 && dy === 0) continue;
+                                const nIdx = ((y + dy) * width + (x + dx)) * 4;
+                                if (pixels[nIdx] >= 128) {
+                                    isEdge = true;
+                                    break;
+                                }
+                            }
+                            if (isEdge) break;
+                        }
+
+                        if (isEdge) {
+                            const contour = traceContour(pixels, x, y, width, height, visited);
+                            if (contour.length > 10) {
+                                contours.push(contour);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return contours;
+        }
+
+        // 輪郭をトレース
+        function traceContour(pixels, startX, startY, width, height, visited) {
+            const contour = [];
+            const directions = [
+                { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }, { x: -1, y: 1 },
+                { x: -1, y: 0 }, { x: -1, y: -1 }, { x: 0, y: -1 }, { x: 1, y: -1 }
+            ];
+
+            let x = startX;
+            let y = startY;
+            let dir = 0;
+            const maxSteps = 5000;
+            let steps = 0;
+
+            do {
+                if (steps++ > maxSteps) break;
+
+                contour.push({ x, y });
+                visited[y * width + x] = true;
+
+                // 次の黒いエッジピクセルを探す
+                let found = false;
+                for (let i = 0; i < 8; i++) {
+                    const newDir = (dir + i) % 8;
+                    const nx = x + directions[newDir].x;
+                    const ny = y + directions[newDir].y;
+
+                    if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                        const idx = (ny * width + nx) * 4;
+                        if (pixels[idx] < 128 && !visited[ny * width + nx]) {
+                            // エッジピクセルか確認
+                            let isEdge = false;
+                            for (let j = 0; j < 8; j++) {
+                                const ex = nx + directions[j].x;
+                                const ey = ny + directions[j].y;
+                                if (ex >= 0 && ex < width && ey >= 0 && ey < height) {
+                                    const eIdx = (ey * width + ex) * 4;
+                                    if (pixels[eIdx] >= 128) {
+                                        isEdge = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (isEdge) {
+                                x = nx;
+                                y = ny;
+                                dir = (newDir + 6) % 8;
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (!found) break;
+
+            } while (x !== startX || y !== startY || contour.length < 3);
+
+            return contour;
+        }
+
+
+        // 輪郭を滑らかにする
+        function smoothContour(contour, iterations) {
+            let smoothed = contour.slice();
+
+            for (let iter = 0; iter < iterations; iter++) {
+                const newContour = [];
+
+                for (let i = 0; i < smoothed.length; i++) {
+                    const prev = smoothed[(i - 1 + smoothed.length) % smoothed.length];
+                    const curr = smoothed[i];
+                    const next = smoothed[(i + 1) % smoothed.length];
+
+                    // 移動平均
+                    newContour.push({
+                        x: (prev.x + curr.x * 2 + next.x) / 4,
+                        y: (prev.y + curr.y * 2 + next.y) / 4
+                    });
+                }
+
+                smoothed = newContour;
+            }
+
+            // 点の数を減らす
+            const simplified = [smoothed[0]];
+            for (let i = 1; i < smoothed.length; i++) {
+                const prev = simplified[simplified.length - 1];
+                const curr = smoothed[i];
+                const dist = Math.sqrt(Math.pow(curr.x - prev.x, 2) + Math.pow(curr.y - prev.y, 2));
+
+                if (dist > 5) {
+                    simplified.push(curr);
+                }
+            }
+
+            return simplified;
+        }
+
+
+        function setupEventListeners() {
+            // ファイルアップロード
+            document.getElementById('upload-button').addEventListener('click', () => {
+                document.getElementById('file-input').click();
+            });
+
+            document.getElementById('file-input').addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file && file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        uploadedImage = new Image();
+                        uploadedImage.onload = () => {
+                            document.getElementById('threshold-control').style.display = 'block';
+                            document.getElementById('edit-tools').style.display = 'none';
+                            processImage();
+                        };
+                        uploadedImage.src = event.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+
+            // 閾値調整
+            document.getElementById('threshold').addEventListener('input', (e) => {
+                document.getElementById('threshold-value').textContent = e.target.value;
+            });
+
+            // 画像処理
+            document.getElementById('process-image').addEventListener('click', processImage);
+
+            // 編集ツール
+            document.getElementById('draw-tool').addEventListener('click', () => {
+                currentTool = 'draw';
+                document.getElementById('draw-tool').classList.add('active');
+                document.getElementById('erase-tool').classList.remove('active');
+                canvas2d.style.cursor = 'crosshair';
+            });
+
+            document.getElementById('erase-tool').addEventListener('click', () => {
+                currentTool = 'erase';
+                document.getElementById('erase-tool').classList.add('active');
+                document.getElementById('draw-tool').classList.remove('active');
+                canvas2d.style.cursor = 'grab';
+            });
+
+            // ブラシサイズ
+            document.getElementById('brush-size').addEventListener('input', (e) => {
+                brushSize = parseInt(e.target.value);
+                document.getElementById('brush-size-value').textContent = brushSize;
+            });
+
+            // 編集をリセット
+            document.getElementById('clear-edits').addEventListener('click', () => {
+                if (processedImageData) {
+                    ctx.putImageData(processedImageData, 0, 0);
+                    updateBoard();
+                }
+            });
+
+            // 3Dモデル更新
+            document.getElementById('update-model').addEventListener('click', updateBoard);
+
+            // カラーピッカー
+            document.getElementById('board-color').addEventListener('change', updateBoard);
+
+            // スライダー
+            const sliders = ['thickness', 'board-width', 'board-height', 'resolution'];
+            sliders.forEach(sliderId => {
+                const slider = document.getElementById(sliderId);
+                const valueDisplay = document.getElementById(sliderId + '-value');
+
+                slider.addEventListener('input', function (e) {
+                    valueDisplay.textContent = e.target.value;
+                });
+            });
+
+            // エクスポート
+            document.getElementById('export').addEventListener('click', () => exportGLTF(false));
+            document.getElementById('export-binary').addEventListener('click', () => exportGLTF(true));
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            const container = document.getElementById('canvas-container');
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        function exportGLTF(binary = false) {
+            if (!boardMesh) {
+                alert('先に3Dモデルを更新してください');
+                return;
+            }
+
+            const exporter = new GLTFExporter();
+
+            // エクスポート対象を準備
+            const exportScene = new THREE.Scene();
+            const clonedMesh = boardMesh.clone();
+            exportScene.add(clonedMesh);
+
+            const options = {
+                binary: binary,
+                trs: false,
+                onlyVisible: true,
+                truncateDrawRange: true,
+                embedImages: true,
+                maxTextureSize: 4096
+            };
+
+            exporter.parse(
+                exportScene,
+                function (result) {
+                    if (result instanceof ArrayBuffer) {
+                        saveArrayBuffer(result, 'drawn-cutout-board.glb');
+                    } else {
+                        const output = JSON.stringify(result, null, 2);
+                        saveString(output, 'drawn-cutout-board.gltf');
+                    }
+                },
+                options
+            );
+        }
+
+        function saveString(text, filename) {
+            const blob = new Blob([text], { type: 'text/plain' });
+            save(blob, filename);
+        }
+
+        function saveArrayBuffer(buffer, filename) {
+            const blob = new Blob([buffer], { type: 'application/octet-stream' });
+            save(blob, filename);
+        }
+
+        function save(blob, filename) {
+            const link = document.createElement('a');
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // 初期化
+        init();
+    </script>
+</body>
+
+</html>
