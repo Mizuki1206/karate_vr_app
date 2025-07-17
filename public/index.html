@@ -163,7 +163,16 @@
                 audioElement.currentTime = 0;
                 
                 // 音量を設定
-                audioElement.volume = 0.7;
+                audioElement.volume = 0.8;
+                
+                // 再生前にロード状態を確認
+                if (audioElement.readyState < 2) {
+                    console.log('Audio not ready, loading...');
+                    await new Promise((resolve) => {
+                        audioElement.addEventListener('canplaythrough', resolve, { once: true });
+                        audioElement.load();
+                    });
+                }
                 
                 // 再生の試行
                 const playPromise = audioElement.play();
@@ -187,7 +196,9 @@
                         oscillator.connect(gainNode);
                         gainNode.connect(audioContext.destination);
                         
-                        oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+                        // 成功音と失敗音を区別
+                        const frequency = audioElement === successSound ? 800 : 400;
+                        oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
                         gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
                         gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
                         
@@ -443,6 +454,10 @@
                 this.hit = false;
                 this.type = type;
                 this.speed = 0.05; // 移動速度を上げて突き抜けるアニメーションを強調
+                this.collisionBalls = []; // 衝突判定用のボール
+                this.headHit = false; // 頭部との衝突フラグ
+                this.handHit = false; // 手との衝突フラグ
+                this.judged = false; // 判定済みフラグ
 
                 if (gltfModel) {
                     // GLTFモデルを使用
@@ -490,6 +505,161 @@
                     });
                     this.collisionMesh = new THREE.Mesh(collisionGeometry, collisionMaterial);
                     this.group.add(this.collisionMesh);
+
+                    // 衝突判定用のボールを2つ追加
+                    this.createCollisionBalls();
+                }
+            }
+
+            createCollisionBalls() {
+                // タイプに応じてボールの位置を変更
+                if (this.type === 'front') {
+                    // 元のfront.gltfの位置（デフォルト）
+                    // ボール1（頭部用）- 透明
+                    const ball1Geometry = new THREE.SphereGeometry(0.15, 16, 16);
+                    const ball1Material = new THREE.MeshStandardMaterial({ 
+                        color: 0x00ff00,
+                        emissive: 0x004400,
+                        transparent: true,
+                        opacity: 0 // 完全に透明
+                    });
+                    const ball1 = new THREE.Mesh(ball1Geometry, ball1Material);
+                    ball1.position.set(0, 0.8, 0); // 頭部の高さ
+                    ball1.userData = { type: 'head' };
+                    this.group.add(ball1);
+                    this.collisionBalls.push(ball1);
+
+                    // ボール2（手用）- 透明
+                    const ball2Geometry = new THREE.SphereGeometry(0.3, 16, 16);
+                    const ball2Material = new THREE.MeshStandardMaterial({ 
+                        color: 0xff0000,
+                        emissive: 0x440000,
+                        transparent: true,
+                        opacity: 0 // 完全に透明
+                    });
+                    const ball2 = new THREE.Mesh(ball2Geometry, ball2Material);
+                    ball2.position.set(0, 0.2, 0); // 胸部の高さ
+                    ball2.userData = { type: 'hand' };
+                    this.group.add(ball2);
+                    this.collisionBalls.push(ball2);
+
+                } else if (this.type === 'front_2') {
+                    // front_2.gltfの位置（1枚目画像の通り）
+                    // ボール1（頭部用）- 透明
+                    const ball1Geometry = new THREE.SphereGeometry(0.15, 16, 16);
+                    const ball1Material = new THREE.MeshStandardMaterial({ 
+                        color: 0x00ff00,
+                        emissive: 0x004400,
+                        transparent: true,
+                        opacity: 0 // 完全に透明
+                    });
+                    const ball1 = new THREE.Mesh(ball1Geometry, ball1Material);
+                    ball1.position.set(0.1, 0.7, 0); // 頭部の高さ（少し下に調整）
+                    ball1.userData = { type: 'head' };
+                    this.group.add(ball1);
+                    this.collisionBalls.push(ball1);
+
+                    // ボール2（手用）- 透明
+                    const ball2Geometry = new THREE.SphereGeometry(0.15, 16, 16);
+                    const ball2Material = new THREE.MeshStandardMaterial({ 
+                        color: 0xff0000,
+                        emissive: 0x440000,
+                        transparent: true,
+                        opacity: 0 // 完全に透明
+                    });
+                    const ball2 = new THREE.Mesh(ball2Geometry, ball2Material);
+                    ball2.position.set(-0.3, 0.35, 0); // 左手の位置（右上に調整）
+                    ball2.userData = { type: 'hand' };
+                    this.group.add(ball2);
+                    this.collisionBalls.push(ball2);
+
+                    // ボール3（手用）- 透明
+                    const ball3Geometry = new THREE.SphereGeometry(0.15, 16, 16);
+                    const ball3Material = new THREE.MeshStandardMaterial({ 
+                        color: 0xff0000,
+                        emissive: 0x440000,
+                        transparent: true,
+                        opacity: 0 // 完全に透明
+                    });
+                    const ball3 = new THREE.Mesh(ball3Geometry, ball3Material);
+                    ball3.position.set(0.4, 0, 0); // 右手の位置（上に調整）
+                    ball3.userData = { type: 'hand' };
+                    this.group.add(ball3);
+                    this.collisionBalls.push(ball3);
+
+                } else if (this.type === 'front_3') {
+                    // front_3.gltfの位置（2枚目画像の通り）
+                    // ボール1（頭部用）- 透明
+                    const ball1Geometry = new THREE.SphereGeometry(0.15, 16, 16);
+                    const ball1Material = new THREE.MeshStandardMaterial({ 
+                        color: 0x00ff00,
+                        emissive: 0x004400,
+                        transparent: true,
+                        opacity: 0 // 完全に透明
+                    });
+                    const ball1 = new THREE.Mesh(ball1Geometry, ball1Material);
+                    ball1.position.set(0.0, 0.7, 0); // 頭部の位置（右下に調整）
+                    ball1.userData = { type: 'head' };
+                    this.group.add(ball1);
+                    this.collisionBalls.push(ball1);
+
+                    // ボール2（手用）- 透明
+                    const ball2Geometry = new THREE.SphereGeometry(0.15, 16, 16);
+                    const ball2Material = new THREE.MeshStandardMaterial({ 
+                        color: 0xff0000,
+                        emissive: 0x440000,
+                        transparent: true,
+                        opacity: 0 // 完全に透明
+                    });
+                    const ball2 = new THREE.Mesh(ball2Geometry, ball2Material);
+                    ball2.position.set(0.5, 0.5, 0); // 右手の位置（左上に調整）
+                    ball2.userData = { type: 'hand' };
+                    this.group.add(ball2);
+                    this.collisionBalls.push(ball2);
+
+                    // ボール3（手用）- 透明
+                    const ball3Geometry = new THREE.SphereGeometry(0.15, 16, 16);
+                    const ball3Material = new THREE.MeshStandardMaterial({ 
+                        color: 0xff0000,
+                        emissive: 0x440000,
+                        transparent: true,
+                        opacity: 0 // 完全に透明
+                    });
+                    const ball3 = new THREE.Mesh(ball3Geometry, ball3Material);
+                    ball3.position.set(-0.6, 0.1, 0); // 左手の位置（上に調整）
+                    ball3.userData = { type: 'hand' };
+                    this.group.add(ball3);
+                    this.collisionBalls.push(ball3);
+
+                } else {
+                    // その他のタイプ（sideなど）はデフォルト
+                    // ボール1（頭部用）- 透明
+                    const ball1Geometry = new THREE.SphereGeometry(0.15, 16, 16);
+                    const ball1Material = new THREE.MeshStandardMaterial({ 
+                        color: 0x00ff00,
+                        emissive: 0x004400,
+                        transparent: true,
+                        opacity: 0 // 完全に透明
+                    });
+                    const ball1 = new THREE.Mesh(ball1Geometry, ball1Material);
+                    ball1.position.set(0, 0.8, 0); // 頭部の高さ
+                    ball1.userData = { type: 'head' };
+                    this.group.add(ball1);
+                    this.collisionBalls.push(ball1);
+
+                    // ボール2（手用）- 透明
+                    const ball2Geometry = new THREE.SphereGeometry(0.15, 16, 16);
+                    const ball2Material = new THREE.MeshStandardMaterial({ 
+                        color: 0xff0000,
+                        emissive: 0x440000,
+                        transparent: true,
+                        opacity: 0 // 完全に透明
+                    });
+                    const ball2 = new THREE.Mesh(ball2Geometry, ball2Material);
+                    ball2.position.set(0, 0.2, 0); // 胸部の高さ
+                    ball2.userData = { type: 'hand' };
+                    this.group.add(ball2);
+                    this.collisionBalls.push(ball2);
                 }
             }
 
@@ -507,13 +677,134 @@
 
                 // 画面外に出たかチェック
                 if (this.type === 'side' && this.group.position.x < -10) {
+                    this.performFinalJudgment();
                     this.hit = true; // 削除フラグを立てる
                 } else if ((this.type === 'front' || this.type === 'front_2' || this.type === 'front_3') && this.group.position.z > 10) {
+                    this.performFinalJudgment();
                     this.hit = true; // 削除フラグを立てる
                 }
             }
 
+            checkCollision() {
+                if (this.hit || this.judged) return;
+
+                // 頭部衝突フラグと手衝突フラグをリセット（1フレームごとに再チェック）
+                let currentHeadHit = false;
+                let currentHandHit = false;
+
+                // 各ボールとの衝突をチェック
+                this.collisionBalls.forEach(ball => {
+                    const ballWorldPos = new THREE.Vector3();
+                    ball.getWorldPosition(ballWorldPos);
+
+                    // 頭部との衝突チェック
+                    if (ball.userData.type === 'head' && headMesh) {
+                        const headWorldPos = new THREE.Vector3();
+                        headMesh.getWorldPosition(headWorldPos);
+                        const distance = ballWorldPos.distanceTo(headWorldPos);
+                        
+                        if (distance < 0.4) { // 衝突距離
+                            currentHeadHit = true;
+                            if (!this.headHit) {
+                                this.headHit = true;
+                                // 衝突時の色変更は削除（透明なので意味がない）
+                                console.log('Head collision detected! Distance:', distance);
+                                
+                                // 即座に音声を再生（テスト用）
+                                playAudioSafe(successSound).catch(console.error);
+                            }
+                        }
+                    }
+
+                    // 手との衝突チェック
+                    if (ball.userData.type === 'hand') {
+                        let handCollided = false;
+                        let minDistance = 999;
+
+                        // 左手との衝突
+                        if (handMeshes.left[0] && handMeshes.left[0].visible) {
+                            const leftHandWorldPos = new THREE.Vector3();
+                            handMeshes.left[0].getWorldPosition(leftHandWorldPos);
+                            const distance = ballWorldPos.distanceTo(leftHandWorldPos);
+                            minDistance = Math.min(minDistance, distance);
+                            
+                            if (distance < 0.4) { // 衝突距離
+                                handCollided = true;
+                            }
+                        }
+
+                        // 右手との衝突
+                        if (handMeshes.right[0] && handMeshes.right[0].visible) {
+                            const rightHandWorldPos = new THREE.Vector3();
+                            handMeshes.right[0].getWorldPosition(rightHandWorldPos);
+                            const distance = ballWorldPos.distanceTo(rightHandWorldPos);
+                            minDistance = Math.min(minDistance, distance);
+                            
+                            if (distance < 0.4) { // 衝突距離
+                                handCollided = true;
+                            }
+                        }
+
+                        if (handCollided) {
+                            currentHandHit = true;
+                            if (!this.handHit) {
+                                this.handHit = true;
+                                // 衝突時の色変更は削除（透明なので意味がない）
+                                console.log('Hand collision detected! Min distance:', minDistance);
+                                
+                                // 即座に音声を再生（テスト用）
+                                playAudioSafe(failSound).catch(console.error);
+                            }
+                        }
+                    }
+                });
+
+                // 複数の手用ボールがある場合、いずれか一つでも当たればhandHitをtrueにする
+                if (currentHandHit) {
+                    this.handHit = true;
+                }
+            }
+
+            async performFinalJudgment() {
+                if (this.judged) return;
+                this.judged = true;
+
+                console.log(`Final judgment - Head hit: ${this.headHit}, Hand hit: ${this.handHit}`);
+
+                // 少し待ってから音声を再生
+                setTimeout(async () => {
+                    if (this.headHit && this.handHit) {
+                        // 両方に衝突した場合は正解
+                        console.log('Success: Both head and hand hit');
+                        try {
+                            await playAudioSafe(successSound);
+                            showJudgmentResult('正解！両方に当たりました！', 'success');
+                        } catch (error) {
+                            console.error('Success sound failed:', error);
+                            showJudgmentResult('正解！両方に当たりました！', 'success');
+                        }
+                    } else {
+                        // どちらかまたは両方に衝突しなかった場合は不正解
+                        console.log('Fail: Missing collision');
+                        try {
+                            await playAudioSafe(failSound);
+                            const missedParts = [];
+                            if (!this.headHit) missedParts.push('頭部');
+                            if (!this.handHit) missedParts.push('手');
+                            showJudgmentResult(`不正解！${missedParts.join('と')}に当たりませんでした`, 'fail');
+                        } catch (error) {
+                            console.error('Fail sound failed:', error);
+                            const missedParts = [];
+                            if (!this.headHit) missedParts.push('頭部');
+                            if (!this.handHit) missedParts.push('手');
+                            showJudgmentResult(`不正解！${missedParts.join('と')}に当たりませんでした`, 'fail');
+                        }
+                    }
+                }, 100);
+            }
+
             checkMatch() {
+                // 従来の手との衝突判定は残しておく（互換性のため）
                 if (!headMesh || this.hit || !this.gltfModel || !this.collisionMesh) return;
 
                 const targetPos = new THREE.Vector3();
@@ -894,6 +1185,7 @@
                 // ターゲットの更新
                 for (let i = targets.length - 1; i >= 0; i--) {
                     targets[i].update(playerPosition);
+                    targets[i].checkCollision(); // 新しい衝突判定を追加
                     targets[i].checkMatch();
 
                     // ヒットしたターゲットを削除
