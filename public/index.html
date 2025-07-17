@@ -250,22 +250,22 @@
         // パンチポーズの条件チェック
         function checkPunchConditions(leftHand, rightHand) {
             return {
-                rightHandForward: rightHand.z > -0.2,
-                leftHandBack: leftHand.z < -0.1,
-                rightHandHeight: rightHand.y > -0.9 && rightHand.y < -0.2,
-                leftHandHeight: leftHand.y > -0.9 && leftHand.y < -0.2,
+                rightHandForward: rightHand.z < -0.3,
+                leftHandBack: leftHand.z > -0.1,
+                rightHandHeight: rightHand.y > 0.8,
+                leftHandHeight: leftHand.y > 0.8,
                 rightHandRight: rightHand.x > 0.05,
-                leftHandLeft: leftHand.x < 0.05
+                leftHandLeft: leftHand.x < -1.0
             };
         }
 
         // 直立姿勢の条件チェック
         function checkStandingConditions(leftHand, rightHand) {
             return {
-                leftHandDown: leftHand.y < -0.5 && leftHand.y > -1.3,
-                rightHandDown: rightHand.y < -0.5 && rightHand.y > -1.3,
-                leftHandLeft: leftHand.x < -0.08 && leftHand.x > -0.6,
-                rightHandRight: rightHand.x > 0.08 && rightHand.x < 0.6,
+                leftHandDown: leftHand.y > 0.5,
+                rightHandDown: rightHand.y > 0.5,
+                leftHandLeft: leftHand.x > -0.2,
+                rightHandRight: rightHand.x < 0.2,
                 handsNearBody: Math.abs(leftHand.z) < 0.4 && Math.abs(rightHand.z) < 0.4
             };
         }
