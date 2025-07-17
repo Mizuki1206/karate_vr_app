@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>KARATE FORM VR - Debug版</title>
+    <title>KARATE FORM VR</title>
     <style>
         body {
             margin: 0;
@@ -72,18 +72,26 @@
             text-shadow: 2px 2px 4px rgba(0, 0, 0, 1);
             min-width: 400px;
         }
+
+        #hitStatus {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #00ff00;
+            font-size: 48px;
+            font-weight: bold;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 20px 40px;
+            border-radius: 10px;
+            z-index: 100;
+            display: none;
+        }
     </style>
 </head>
 
 <body>
-    <!-- 音声要素を追加 -->
-    <audio id="successSound" preload="auto">
-        <source src="Quiz-Buzzer02-5(Multi).mp3" type="audio/mpeg">
-    </audio>
-    <audio id="failSound" preload="auto">
-        <source src="Quiz-Ding_Dong02-1(Fast).mp3" type="audio/mpeg">
-    </audio>
-
     <div id="info">VRモードでハンドトラッキングを表示</div>
     <div id="errorMessage"></div>
     <button id="startButton">VRモードを開始</button>
@@ -106,25 +114,6 @@
         let spawnInterval = 3000; // スポーン間隔（ミリ秒）
         let spawnCount = 0; // スポーン回数をカウント
 
-        // ポーズ判定用の変数
-        let currentPose = null;
-        let poseStartTime = null;
-        let lastJudgmentTime = 0;
-        const POSE_HOLD_TIME = 1500; // 1.5秒間ポーズを維持する必要がある
-        const JUDGMENT_COOLDOWN = 3000; // 判定後3秒間は再判定しない
-
-        // 音声要素の取得
-        const successSound = document.getElementById('successSound');
-        const failSound = document.getElementById('failSound');
-
-        // 音声再生の準備（WebXR用）
-        let audioContext = null;
-        let audioInitialized = false;
-
-        // VR空間内デバッグ表示用
-        let debugTextGroup;
-        let debugTexts = [];
-
         const HAND_JOINTS = [
             'wrist',
             'thumb-metacarpal', 'thumb-phalanx-proximal', 'thumb-phalanx-distal', 'thumb-tip',
@@ -134,306 +123,6 @@
             'pinky-finger-metacarpal', 'pinky-finger-phalanx-proximal', 'pinky-finger-phalanx-intermediate', 'pinky-finger-phalanx-distal', 'pinky-finger-tip'
         ];
 
-        // 音声初期化関数
-        async function initializeAudio() {
-            if (audioInitialized) return;
-            
-            try {
-                // Web Audio APIの初期化
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                
-                if (audioContext.state === 'suspended') {
-                    await audioContext.resume();
-                }
-                
-                audioInitialized = true;
-                console.log('Audio initialized successfully');
-            } catch (error) {
-                console.warn('Audio initialization failed:', error);
-            }
-        }
-
-        // 改良された音声再生関数
-        async function playAudioSafe(audioElement) {
-            try {
-                // 音声の初期化
-                await initializeAudio();
-                
-                // 音声要素のリセット
-                audioElement.currentTime = 0;
-                
-                // 音量を設定
-                audioElement.volume = 0.7;
-                
-                // 再生の試行
-                const playPromise = audioElement.play();
-                
-                if (playPromise !== undefined) {
-                    await playPromise;
-                    console.log('Audio played successfully');
-                } else {
-                    console.log('Audio play method returned undefined');
-                }
-                
-            } catch (error) {
-                console.error('Audio play failed:', error);
-                
-                // フォールバック: Web Audio APIを使用
-                try {
-                    if (audioContext && audioContext.state === 'running') {
-                        const oscillator = audioContext.createOscillator();
-                        const gainNode = audioContext.createGain();
-                        
-                        oscillator.connect(gainNode);
-                        gainNode.connect(audioContext.destination);
-                        
-                        oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
-                        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-                        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-                        
-                        oscillator.start();
-                        oscillator.stop(audioContext.currentTime + 0.5);
-                        
-                        console.log('Fallback beep sound played');
-                    }
-                } catch (fallbackError) {
-                    console.error('Fallback audio also failed:', fallbackError);
-                }
-            }
-        }
-
-        // VR空間内に3Dテキストを表示する関数
-        function createDebugText(text, position, color = 0xffffff, size = 0.05) {
-            const canvas = document.createElement('canvas');
-            const context = canvas.getContext('2d');
-            canvas.width = 512;
-            canvas.height = 64;
-            
-            context.fillStyle = `#${color.toString(16).padStart(6, '0')}`;
-            context.fillRect(0, 0, canvas.width, canvas.height);
-            
-            context.fillStyle = '#000000';
-            context.font = '32px Arial';
-            context.textAlign = 'center';
-            context.fillText(text, canvas.width / 2, 45);
-            
-            const texture = new THREE.CanvasTexture(canvas);
-            const material = new THREE.MeshBasicMaterial({ 
-                map: texture, 
-                transparent: true,
-                side: THREE.DoubleSide
-            });
-            
-            const geometry = new THREE.PlaneGeometry(0.8, 0.1);
-            const mesh = new THREE.Mesh(geometry, material);
-            mesh.position.copy(position);
-            
-            return mesh;
-        }
-
-        // デバッグテキストの更新
-        function updateDebugTexts(headPos, leftHandPos, rightHandPos, detectedPose) {
-            // 既存のデバッグテキストを削除
-            debugTexts.forEach(text => {
-                debugTextGroup.remove(text);
-            });
-            debugTexts = [];
-
-            if (!headPos || !leftHandPos || !rightHandPos) return;
-
-            // 相対位置を計算
-            const leftHandRelative = {
-                x: leftHandPos.x - headPos.x,
-                y: leftHandPos.y - headPos.y,
-                z: leftHandPos.z - headPos.z
-            };
-            
-            const rightHandRelative = {
-                x: rightHandPos.x - headPos.x,
-                y: rightHandPos.y - headPos.y,
-                z: rightHandPos.z - headPos.z
-            };
-
-            // テキスト位置（プレイヤーの前方、左側に表示）
-            const basePos = new THREE.Vector3(-1.5, 1.5, -2);
-            
-            // 座標情報を表示
-            const texts = [
-                `頭部: (${headPos.x.toFixed(2)}, ${headPos.y.toFixed(2)}, ${headPos.z.toFixed(2)})`,
-                `左手: (${leftHandPos.x.toFixed(2)}, ${leftHandPos.y.toFixed(2)}, ${leftHandPos.z.toFixed(2)})`,
-                `右手: (${rightHandPos.x.toFixed(2)}, ${rightHandPos.y.toFixed(2)}, ${rightHandPos.z.toFixed(2)})`,
-                `左手相対: (${leftHandRelative.x.toFixed(2)}, ${leftHandRelative.y.toFixed(2)}, ${leftHandRelative.z.toFixed(2)})`,
-                `右手相対: (${rightHandRelative.x.toFixed(2)}, ${rightHandRelative.y.toFixed(2)}, ${rightHandRelative.z.toFixed(2)})`,
-                `検出ポーズ: ${detectedPose}`,
-                `現在のポーズ: ${currentPose || 'なし'}`,
-                `維持時間: ${poseStartTime ? ((Date.now() - poseStartTime) / 1000).toFixed(1) + 's' : '0s'}`
-            ];
-
-            texts.forEach((text, index) => {
-                const position = new THREE.Vector3(basePos.x, basePos.y - index * 0.15, basePos.z);
-                const color = index === 5 ? (detectedPose !== 'none' ? 0x00ff00 : 0xffffff) : 0xffffff;
-                const debugText = createDebugText(text, position, color);
-                debugTextGroup.add(debugText);
-                debugTexts.push(debugText);
-            });
-
-            // 判定条件の詳細表示
-            const punchConditions = checkPunchConditions(leftHandRelative, rightHandRelative);
-            const standingConditions = checkStandingConditions(leftHandRelative, rightHandRelative);
-
-            // パンチポーズの条件
-            const punchTexts = [
-                `右手前方: ${punchConditions.rightHandForward} (z < -0.3: ${rightHandRelative.z.toFixed(2)})`,
-                `左手後方: ${punchConditions.leftHandBack} (z > -0.1: ${leftHandRelative.z.toFixed(2)})`,
-                `右手高さ: ${punchConditions.rightHandHeight} (y > 0.8: ${rightHandRelative.y.toFixed(2)})`,
-                `左手高さ: ${punchConditions.leftHandHeight} (y > 0.8: ${leftHandRelative.y.toFixed(2)})`,
-                `右手右側: ${punchConditions.rightHandRight} (x > 0.05: ${rightHandRelative.x.toFixed(2)})`,
-                `左手左側: ${punchConditions.leftHandLeft} (x < -1.0: ${leftHandRelative.x.toFixed(2)})`
-            ];
-
-            punchTexts.forEach((text, index) => {
-                const position = new THREE.Vector3(basePos.x + 1.8, basePos.y - index * 0.12, basePos.z);
-                const color = text.includes('true') ? 0x00ff00 : (text.includes('false') ? 0xff0000 : 0xffff00);
-                const debugText = createDebugText(text, position, color, 0.04);
-                debugTextGroup.add(debugText);
-                debugTexts.push(debugText);
-            });
-
-            // 直立姿勢の条件表示を修正
-            const standingTexts = [
-                '=== 直立姿勢判定 ===',
-                `左手下: ${standingConditions.leftHandDown} (y > 0.5: ${leftHandRelative.y.toFixed(2)})`,
-                `右手下: ${standingConditions.rightHandDown} (y > 0.5: ${rightHandRelative.y.toFixed(2)})`,
-                `左手左側: ${standingConditions.leftHandLeft} (x > -0.2: ${leftHandRelative.x.toFixed(2)})`,
-                `右手右側: ${standingConditions.rightHandRight} (x < 0.2: ${rightHandRelative.x.toFixed(2)})`,
-                `手が体に近い: ${standingConditions.handsNearBody} (|z| < 0.4: L=${Math.abs(leftHandRelative.z).toFixed(2)}, R=${Math.abs(rightHandRelative.z).toFixed(2)})`
-            ];
-
-            standingTexts.forEach((text, index) => {
-                const position = new THREE.Vector3(basePos.x + 1.8, basePos.y - (index + 8) * 0.12, basePos.z);
-                const color = text.includes('true') ? 0x00ff00 : (text.includes('false') ? 0xff0000 : 0xffff00);
-                const debugText = createDebugText(text, position, color, 0.04);
-                debugTextGroup.add(debugText);
-                debugTexts.push(debugText);
-            });
-        }
-
-        // パンチポーズの条件チェック
-        function checkPunchConditions(leftHand, rightHand) {
-            return {
-                rightHandForward: rightHand.z < -0.3,
-                leftHandBack: leftHand.z > -0.1,
-                rightHandHeight: rightHand.y > 0.8,
-                leftHandHeight: leftHand.y > 0.8,
-                rightHandRight: rightHand.x > 0.05,
-                leftHandLeft: leftHand.x < -1.0
-            };
-        }
-
-        // 直立姿勢の条件チェック
-        function checkStandingConditions(leftHand, rightHand) {
-            return {
-                leftHandDown: leftHand.y > 0.5,
-                rightHandDown: rightHand.y > 0.5,
-                leftHandLeft: leftHand.x > -0.2,
-                rightHandRight: rightHand.x < 0.2,
-                handsNearBody: Math.abs(leftHand.z) < 0.4 && Math.abs(rightHand.z) < 0.4
-            };
-        }
-
-        // ポーズ判定関数
-        function detectPose(headPos, leftHandPos, rightHandPos) {
-            if (!headPos || !leftHandPos || !rightHandPos) return 'none';
-
-            // 相対位置を計算（頭部を基準）
-            const leftHandRelative = {
-                x: leftHandPos.x - headPos.x,
-                y: leftHandPos.y - headPos.y,
-                z: leftHandPos.z - headPos.z
-            };
-            
-            const rightHandRelative = {
-                x: rightHandPos.x - headPos.x,
-                y: rightHandPos.y - headPos.y,
-                z: rightHandPos.z - headPos.z
-            };
-            
-            // 空手パンチポーズの判定（横向きパンチ）
-            const isPunchPose = detectPunchPose(leftHandRelative, rightHandRelative);
-            
-            // 直立姿勢の判定
-            const isStandingPose = detectStandingPose(leftHandRelative, rightHandRelative);
-            
-            return isPunchPose ? 'punch' : isStandingPose ? 'standing' : 'none';
-        }
-
-        // パンチポーズの判定
-        function detectPunchPose(leftHand, rightHand) {
-            const conditions = checkPunchConditions(leftHand, rightHand);
-            return Object.values(conditions).every(condition => condition);
-        }
-
-        // 直立姿勢の判定
-        function detectStandingPose(leftHand, rightHand) {
-            const conditions = checkStandingConditions(leftHand, rightHand);
-            return Object.values(conditions).every(condition => condition);
-        }
-
-        // 判定結果の処理
-        function processPoseJudgment(detectedPose) {
-            const currentTime = Date.now();
-            
-            // クールダウン中は判定しない
-            if (currentTime - lastJudgmentTime < JUDGMENT_COOLDOWN) {
-                return;
-            }
-            
-            if (detectedPose === currentPose) {
-                // 同じポーズが継続している場合
-                if (poseStartTime && currentTime - poseStartTime >= POSE_HOLD_TIME) {
-                    // ポーズを十分な時間維持した場合
-                    executeJudgment(detectedPose);
-                    lastJudgmentTime = currentTime;
-                    poseStartTime = null;
-                    currentPose = null;
-                }
-            } else {
-                // ポーズが変わった場合
-                currentPose = detectedPose;
-                poseStartTime = detectedPose !== 'none' ? currentTime : null;
-            }
-        }
-
-        // 判定実行（修正版）
-        async function executeJudgment(pose) {
-            console.log(`Executing judgment for pose: ${pose}`);
-            
-            if (pose === 'punch') {
-                // パンチポーズ成功
-                console.log('Playing success sound for punch pose');
-                await playAudioSafe(successSound);
-                showJudgmentResult('パンチポーズ成功！', 'success');
-            } else if (pose === 'standing') {
-                // 直立姿勢成功
-                console.log('Playing success sound for standing pose');
-                await playAudioSafe(successSound);
-                showJudgmentResult('直立姿勢成功！', 'success');
-            }
-        }
-
-        // 判定結果の表示
-        function showJudgmentResult(message, type) {
-            // VR空間内に大きなメッセージを表示
-            const position = new THREE.Vector3(0, 2, -2);
-            const color = type === 'success' ? 0x00ff00 : 0xff0000;
-            const resultText = createDebugText(message, position, color, 0.1);
-            scene.add(resultText);
-            
-            // 3秒後に削除
-            setTimeout(() => {
-                scene.remove(resultText);
-            }, 3000);
-        }
 
         // ターゲットクラス
         class Target {
@@ -508,7 +197,7 @@
                 // 画面外に出たかチェック
                 if (this.type === 'side' && this.group.position.x < -10) {
                     this.hit = true; // 削除フラグを立てる
-                } else if ((this.type === 'front' || this.type === 'front_2') && this.group.position.z > 10) {
+                } else if (this.type === 'front' && this.group.position.z > 10) {
                     this.hit = true; // 削除フラグを立てる
                 }
             }
@@ -538,6 +227,7 @@
             }
         }
 
+
         function init() {
             // Three.jsが完全にロードされているか確認
             if (typeof THREE === 'undefined' || !THREE.GLTFLoader) {
@@ -557,9 +247,9 @@
             scene = new THREE.Scene();
             scene.background = new THREE.Color(0x101010);
 
-            // カメラ（修正: より適切な高さに設定）
+            // カメラ
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 100);
-            camera.position.set(0, 1.6, 2); // 平均的な目線高さに修正
+            camera.position.set(0, 1.6, 3);
 
             // レンダラー
             renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -590,10 +280,6 @@
             const gridHelper = new THREE.GridHelper(20, 20);
             scene.add(gridHelper);
 
-            // デバッグテキスト用グループを作成
-            debugTextGroup = new THREE.Group();
-            scene.add(debugTextGroup);
-
             // ハンドトラッキングの設定
             hand1 = renderer.xr.getHand(0);
             hand2 = renderer.xr.getHand(1);
@@ -616,12 +302,10 @@
             headMesh = new THREE.Mesh(headGeometry, headMaterial);
             scene.add(headMesh);
 
+
             // VRモードボタンの設定
             document.getElementById('startButton').addEventListener('click', async () => {
                 try {
-                    // 音声の初期化（ユーザーインタラクション後）
-                    await initializeAudio();
-                    
                     // WebXRのサポートチェック
                     if (!navigator.xr) {
                         throw new Error('WebXRがサポートされていません');
@@ -657,9 +341,7 @@
             });
 
             // 非VRモードボタンの設定
-            document.getElementById('nonVRButton').addEventListener('click', async () => {
-                // 音声の初期化（ユーザーインタラクション後）
-                await initializeAudio();
+            document.getElementById('nonVRButton').addEventListener('click', () => {
 
                 document.getElementById('startButton').style.display = 'none';
                 document.getElementById('nonVRButton').style.display = 'none';
@@ -682,7 +364,7 @@
                 headMesh.visible = false;
 
                 // カメラを少し後ろに
-                camera.position.set(0, 1.8, 5);
+                camera.position.set(0, 1.6, 5);
 
                 // ゲーム開始
                 startNonVRGame();
@@ -720,6 +402,11 @@
                         mesh.position.copy(joint.position);
                         mesh.quaternion.copy(joint.quaternion);
                         mesh.visible = true;
+
+                        // 手首の座標をデバッグ出力
+                        if (HAND_JOINTS[i] === 'wrist') {
+                            console.log('Right wrist position:', joint.position.x.toFixed(2), joint.position.y.toFixed(2), joint.position.z.toFixed(2));
+                        }
                     } else {
                         mesh.visible = false;
                     }
@@ -736,6 +423,11 @@
                         mesh.position.copy(joint.position);
                         mesh.quaternion.copy(joint.quaternion);
                         mesh.visible = true;
+
+                        // 手首の座標をデバッグ出力
+                        if (HAND_JOINTS[i] === 'wrist') {
+                            console.log('Left wrist position:', joint.position.x.toFixed(2), joint.position.y.toFixed(2), joint.position.z.toFixed(2));
+                        }
                     } else {
                         mesh.visible = false;
                     }
@@ -753,55 +445,35 @@
         function updateHandCoordinatesDisplay() {
             // 左手の座標（手首のメッシュ位置を取得）
             let leftHandPosStr = "未検出";
-            let leftHandPos = null;
+            // wristは配列の最初の要素（インデックス0）
             if (handMeshes.left[0] && handMeshes.left[0].visible) {
                 const wristMesh = handMeshes.left[0];
-                leftHandPos = wristMesh.position;
                 leftHandPosStr = `(${wristMesh.position.x.toFixed(2)}, ${wristMesh.position.y.toFixed(2)}, ${wristMesh.position.z.toFixed(2)})`;
             }
 
             // 右手の座標（手首のメッシュ位置を取得）
             let rightHandPosStr = "未検出";
-            let rightHandPos = null;
+            // wristは配列の最初の要素（インデックス0）
             if (handMeshes.right[0] && handMeshes.right[0].visible) {
                 const wristMesh = handMeshes.right[0];
-                rightHandPos = wristMesh.position;
                 rightHandPosStr = `(${wristMesh.position.x.toFixed(2)}, ${wristMesh.position.y.toFixed(2)}, ${wristMesh.position.z.toFixed(2)})`;
             }
 
-            // 頭部の座標（修正: より正確な位置計算）
+            // 頭部の座標
             let headPosStr = "未検出";
-            let headPos = null;
-            if (headMesh && renderer.xr.isPresenting) {
-                // VRモード時のカメラ位置を使用
-                const vrCamera = renderer.xr.getCamera(camera);
-                headPos = vrCamera.position;
-                headPosStr = `(${headPos.x.toFixed(2)}, ${headPos.y.toFixed(2)}, ${headPos.z.toFixed(2)})`;
-            } else if (headMesh) {
-                headPos = headMesh.position;
+            if (headMesh) {
                 headPosStr = `(${headMesh.position.x.toFixed(2)}, ${headMesh.position.y.toFixed(2)}, ${headMesh.position.z.toFixed(2)})`;
             }
 
-            // ポーズ判定の実行とVR空間内デバッグ表示
-            if (isVRMode && headPos && leftHandPos && rightHandPos) {
-                const detectedPose = detectPose(headPos, leftHandPos, rightHandPos);
-                processPoseJudgment(detectedPose);
-                
-                // VR空間内にデバッグ情報を表示
-                updateDebugTexts(headPos, leftHandPos, rightHandPos, detectedPose);
-            }
-
-            // HTML情報表示を更新（非VRモード用）
-            if (!isVRMode) {
-                document.getElementById('info').innerHTML = `
-                    <div style="line-height: 1.8;">
-                        <div>非VRモード</div>
-                        <div>頭部座標: <span style="color: #00ff00;">${headPosStr}</span></div>
-                        <div>左手座標: <span style="color: #ff00ff;">${leftHandPosStr}</span></div>
-                        <div>右手座標: <span style="color: #00ffff;">${rightHandPosStr}</span></div>
-                    </div>
-                `;
-            }
+            // HTML情報表示を更新
+            document.getElementById('info').innerHTML = `
+                <div style="line-height: 1.8;">
+                    <div>VRモード</div>
+                    <div>頭部座標: <span style="color: #00ff00;">${headPosStr}</span></div>
+                    <div>左手座標: <span style="color: #ff00ff;">${leftHandPosStr}</span></div>
+                    <div>右手座標: <span style="color: #00ffff;">${rightHandPosStr}</span></div>
+                </div>
+            `;
         }
 
         // 非VRモード用の関数
@@ -864,11 +536,9 @@
                 // ハンドトラッキングの更新
                 updateHandJoints();
 
-                // カメラの位置を頭部メッシュに反映（修正: より正確な位置設定）
-                const vrCamera = renderer.xr.getCamera(camera);
-                headMesh.position.copy(vrCamera.position);
-                headMesh.position.y += 0.1; // 頭部メッシュを少し上に配置（調整値を小さくしました）
-                headMesh.quaternion.copy(vrCamera.quaternion);
+                // カメラの位置を頭部メッシュに反映
+                headMesh.position.copy(camera.position);
+                headMesh.quaternion.copy(camera.quaternion);
                 isVRMode = true;
 
                 // VRモードで常に手の座標を更新
@@ -880,9 +550,8 @@
                 // 自動スポーン
                 const currentTime = Date.now();
                 if (currentTime - lastSpawnTime > spawnInterval && availableGltfFiles.length > 0) {
-                    // front.gltf、front_2.gltf、side.gltfを順番にスポーン
-                    const spawnOrder = ['front', 'front_2', 'side'];
-                    const type = spawnOrder[spawnCount % spawnOrder.length];
+                    // front.gltfとside.gltfを交互にスポーン
+                    const type = (spawnCount % 2 === 0) ? 'front' : 'side';
                     spawnTestTarget(type);
                     lastSpawnTime = currentTime;
                     spawnCount++;
@@ -909,7 +578,7 @@
 
         // GLTFモデルをロード
         function loadGLTFModels() {
-            const gltfFiles = ['front.gltf', 'front_2.gltf', 'side.gltf'];
+            const gltfFiles = ['front.gltf', 'side.gltf'];
             console.log('Loading GLTF files:', gltfFiles);
 
             gltfFiles.forEach(filename => {
@@ -950,7 +619,6 @@
                     // Y軸方向に90度回転（左向きに）
                     target.group.rotation.y = Math.PI / 2;
                 } else {
-                    // front.gltfとfront_2.gltfの両方に対応（前方から）
                     // VRモードでは手前から、非VRモードでは後ろから
                     const startZ = isVRMode ? camera.position.z - 8 : -10;
                     target.group.position.set(0, 1.2, startZ); 
@@ -964,9 +632,8 @@
 
         // キーボードショートカット（手動スポーン）
         window.addEventListener('keydown', (e) => {
-            if (e.key === 'f') spawnTestTarget('front');     // 前方からスポーン
-            if (e.key === 'g') spawnTestTarget('front_2');   // 前方からスポーン (front_2.gltf)
-            if (e.key === 's') spawnTestTarget('side');      // 横からスポーン
+            if (e.key === 'f') spawnTestTarget('front'); // 前方からスポーン
+            if (e.key === 's') spawnTestTarget('side');  // 横からスポーン
         });
 
         // グローバルスコープに公開（デバッグ用）
