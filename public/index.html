@@ -103,7 +103,7 @@
         let gltfModels = {}; // GLTFモデルを保存
         let availableGltfFiles = []; // 利用可能なGLTFファイルのリスト
         let lastSpawnTime = 0; // 最後にスポーンした時刻
-        let spawnInterval = 3000; // スポーン間隔（ミリ秒）
+        let spawnInterval = 6000; // スポーン間隔（ミリ秒）- 6秒に延長
         let spawnCount = 0; // スポーン回数をカウント
 
         // ポーズ判定用の変数
@@ -508,7 +508,7 @@
                 // 画面外に出たかチェック
                 if (this.type === 'side' && this.group.position.x < -10) {
                     this.hit = true; // 削除フラグを立てる
-                } else if ((this.type === 'front' || this.type === 'front_2') && this.group.position.z > 10) {
+                } else if ((this.type === 'front' || this.type === 'front_2' || this.type === 'front_3') && this.group.position.z > 10) {
                     this.hit = true; // 削除フラグを立てる
                 }
             }
@@ -880,8 +880,8 @@
                 // 自動スポーン
                 const currentTime = Date.now();
                 if (currentTime - lastSpawnTime > spawnInterval && availableGltfFiles.length > 0) {
-                    // front.gltf、front_2.gltf、side.gltfを順番にスポーン
-                    const spawnOrder = ['front', 'front_2', 'side'];
+                    // front.gltf、front_2.gltf、front_3.gltf、side.gltfを順番にスポーン
+                    const spawnOrder = ['front', 'front_2', 'front_3', 'side'];
                     const type = spawnOrder[spawnCount % spawnOrder.length];
                     spawnTestTarget(type);
                     lastSpawnTime = currentTime;
@@ -909,7 +909,7 @@
 
         // GLTFモデルをロード
         function loadGLTFModels() {
-            const gltfFiles = ['front.gltf', 'front_2.gltf', 'side.gltf'];
+            const gltfFiles = ['front.gltf', 'front_2.gltf', 'front_3.gltf', 'side.gltf'];
             console.log('Loading GLTF files:', gltfFiles);
 
             gltfFiles.forEach(filename => {
@@ -950,7 +950,7 @@
                     // Y軸方向に90度回転（左向きに）
                     target.group.rotation.y = Math.PI / 2;
                 } else {
-                    // front.gltfとfront_2.gltfの両方に対応（前方から）
+                    // front.gltf、front_2.gltf、front_3.gltfの全てに対応（前方から）
                     // VRモードでは手前から、非VRモードでは後ろから
                     const startZ = isVRMode ? camera.position.z - 8 : -10;
                     target.group.position.set(0, 1.2, startZ); 
@@ -966,6 +966,7 @@
         window.addEventListener('keydown', (e) => {
             if (e.key === 'f') spawnTestTarget('front');     // 前方からスポーン
             if (e.key === 'g') spawnTestTarget('front_2');   // 前方からスポーン (front_2.gltf)
+            if (e.key === 'h') spawnTestTarget('front_3');   // 前方からスポーン (front_3.gltf)
             if (e.key === 's') spawnTestTarget('side');      // 横からスポーン
         });
 
